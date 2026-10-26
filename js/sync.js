@@ -108,34 +108,51 @@ const JHT_SYNC = (() => {
       }
 
       const result = await response.json();
+      const list = Array.isArray(result) ? result : (Array.isArray(result.data) ? result.data : []);
 
-      if (result.status === 'success' && Array.isArray(result.data)) {
+      if (list.length > 0 || Array.isArray(result) || result.status === 'success') {
         let savedCount = 0;
 
-        for (const item of result.data) {
+        for (const item of list) {
+          const itemId = item.activityId || item.id || crypto.randomUUID();
+          // Normalisation de l'objet intervention
+          const normalized = {
+            id: itemId,
+            activityId: item.activityId || '',
+            regardingObjectId: item.regardingObjectId || '',
+            caseNo: item.caseNo || '',
+            clientName: item.nomClient || item.clientName || '',
+            clinique: item.clinique || '',
+            productName: item.nomProduit || item.productName || '',
+            serialNo: item.serieConsole || item.serialNo || '',
+            defectReport: item.defautRapport || item.defectReport || '',
+            status: item.status || (item.statutPortail === 'In Process' ? 'In Process' : 'Complete'),
+            dateDebut: item.dateDebutCal || item.dateDebut || '',
+            heureDebut: item.heureDebut || '',
+            dateFin: item.dateFinCal || item.dateFin || '',
+            heureFin: item.heureFin || '',
+            ttrCode: item.ttrCode || '',
+            travauxEffectues: item.travaux || item.travauxEffectues || '',
+            technicien: item.technicien || '',
+            synced: true,
+            pieces: typeof item.pieces === 'string'
+              ? JSON.parse(item.pieces || '[]')
+              : (item.pieces || [])
+          };
+
           // Vérifier si l'intervention existe déjà localement
-          const existing = await window.JHT_DB.getIntervention(item.id);
+          const existing = await window.JHT_DB.getIntervention(itemId);
 
           if (!existing) {
             // Nouvelle intervention : sauvegarder
-            await window.JHT_DB.saveIntervention({
-              ...item,
-              synced: true, // Elle vient de Sheets, donc "synced" dans le sens inverse
-              status: item.status || 'In Process',
-              pieces: typeof item.pieces === 'string'
-                ? JSON.parse(item.pieces || '[]')
-                : (item.pieces || [])
-            });
+            await window.JHT_DB.saveIntervention(normalized);
             savedCount++;
           } else if (existing.synced && existing.status === 'In Process') {
-            // Mise à jour d'une intervention non modifiée localement
+            // Mise à jour si non modifiée localement
             await window.JHT_DB.saveIntervention({
               ...existing,
-              ...item,
-              synced: true,
-              pieces: typeof item.pieces === 'string'
-                ? JSON.parse(item.pieces || '[]')
-                : (item.pieces || existing.pieces || [])
+              ...normalized,
+              synced: true
             });
             savedCount++;
           }
@@ -215,3 +232,4 @@ navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', (
     });
   }
 });
+
