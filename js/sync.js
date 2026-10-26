@@ -59,11 +59,11 @@ const JHT_SYNC = (() => {
 
       const result = await response.json();
 
-      if (result.status === 'success') {
+      if (result.status === 'success' || result.success || result.updated || result.created) {
         await window.JHT_DB.markSynced(intervention.id);
         return { success: true, message: 'Synchronisé avec succès' };
       } else {
-        return { success: false, message: result.message || 'Erreur Apps Script' };
+        return { success: false, message: result.message || result.error || 'Erreur Apps Script' };
       }
 
     } catch (error) {
