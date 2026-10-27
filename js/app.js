@@ -226,20 +226,27 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Actualise depuis Google Sheets en filtrant par le technicien connecté */
+/** Purge le stockage local et réactualise proprement depuis Google Sheets */
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
   btn.disabled = true;
-  btn.textContent = '⏳ Actualisation…';
+  btn.textContent = '⏳ Nettoyage & Sync…';
 
   try {
     if (!AppState.technicien) {
       AppState.technicien = await JHT_DB.getConfig('technicien');
     }
 
+    // 1. Purger toutes les interventions stockées localement en IndexedDB
+    const allLocal = await JHT_DB.getAllInterventions();
+    for (const interv of allLocal) {
+      await JHT_DB.deleteIntervention(interv.id);
+    }
+
+    // 2. Télécharger uniquement la liste fraîche filtrée depuis Google Sheets
     const result = await JHT_SYNC.fetchInterventions(AppState.technicien);
     if (result.success) {
-      showToast(result.message, 'success');
+      showToast('Liste réinitialisée et à jour !', 'success');
       await renderInterventionList();
     } else if (result.offline) {
       showToast('Pas de connexion réseau', 'warning');
@@ -248,6 +255,7 @@ async function refreshFromSheets() {
     }
   } catch (err) {
     showToast('Erreur lors de l\'actualisation', 'error');
+    console.error(err);
   } finally {
     btn.disabled = false;
     btn.textContent = '🔄 Actualiser';
@@ -296,7 +304,6 @@ async function renderDetailView(interv) {
   const statusSelect = document.getElementById('detail-status');
   statusSelect.value = interv.status ? interv.status : 'Scheduled';
 
-  // Si la date stockée est en JJ-MM-AAAA, on la convertit en YYYY-MM-DD pour l'input date HTML
   let dateVal = interv.dateDebut || todayISO();
   if (dateVal.includes('-') && dateVal.split('-')[0].length === 2) {
     const parts = dateVal.split('-');
@@ -442,7 +449,6 @@ async function saveAndSync() {
 
     interv.status = document.getElementById('detail-status').value;
     
-    // Formate la date de début au format JJ-MM-AAAA pour l'envoi vers Sheets
     const rawDate = document.getElementById('detail-date-debut').value;
     interv.dateDebut = formatDateToJJMMYYYY(rawDate);
     
@@ -482,6 +488,14 @@ async function saveAndSync() {
         AppState.currentIntervention.synced = true;
         updateSyncIndicator(true);
         showToast('Synchronisé avec Google Sheets !', 'success');
+
+        // Suppression immédiate de la base locale
+        await JHT_DB.deleteIntervention(AppState.currentIntervention.id);
+
+        setTimeout(() => {
+          initListView();
+        }, 1000);
+
       } else if (syncResult.offline) {
         showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
         if ('serviceWorker' in navigator && 'SyncManager' in window) {
