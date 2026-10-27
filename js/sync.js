@@ -7,11 +7,6 @@ const JHT_SYNC = (() => {
 
   // ─── Synchronisation vers Google Sheets ────────────────────────────────────
 
-  /**
-   * Envoie une intervention vers Google Sheets via l'URL Apps Script.
-   * @param {Object} intervention - L'intervention à synchroniser
-   * @returns {Promise<{success: boolean, message: string}>}
-   */
   async function syncToSheets(intervention) {
     const appsScriptUrl = await window.JHT_DB.getConfig('appsScriptUrl');
 
@@ -49,7 +44,6 @@ const JHT_SYNC = (() => {
 
       const response = await fetch(appsScriptUrl, {
         method: 'POST',
-        // Apps Script nécessite text/plain pour éviter CORS preflight
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
@@ -78,11 +72,6 @@ const JHT_SYNC = (() => {
 
   // ─── Récupération depuis Google Sheets ─────────────────────────────────────
 
-  /**
-   * Récupère les interventions disponibles depuis Google Sheets.
-   * Ces interventions sont ensuite sauvegardées localement en IndexedDB.
-   * @returns {Promise<{success: boolean, count: number, message: string}>}
-   */
   async function fetchInterventions() {
     const appsScriptUrl = await window.JHT_DB.getConfig('appsScriptUrl');
     const technicien = await window.JHT_DB.getConfig('technicien');
@@ -92,7 +81,6 @@ const JHT_SYNC = (() => {
     }
 
     try {
-      // Construire l'URL avec paramètres de requête
       const url = new URL(appsScriptUrl);
       url.searchParams.set('action', 'getInterventions');
       if (technicien) {
@@ -116,7 +104,7 @@ const JHT_SYNC = (() => {
 
         for (const item of list) {
           const itemId = item.activityId || item.id || crypto.randomUUID();
-          // Normalisation de l'objet intervention
+          
           const normalized = {
             id: itemId,
             activityId: item.activityId || '',
@@ -136,35 +124,21 @@ const JHT_SYNC = (() => {
             ttrCode: item.ttrCode || '',
             travauxEffectues: item.travaux || item.travauxEffectues || '',
             technicien: item.technicien || '',
-            synced: true,
+            synced: false, // On force à false pour que seuls les tickets actifs restent visibles
             pieces: typeof item.pieces === 'string'
               ? JSON.parse(item.pieces || '[]')
               : (item.pieces || [])
           };
 
-          // Vérifier si l'intervention existe déjà localement
-          const existing = await window.JHT_DB.getIntervention(itemId);
-
-          if (!existing) {
-            // Nouvelle intervention : sauvegarder
-            await window.JHT_DB.saveIntervention(normalized);
-            savedCount++;
-          } else if (existing.synced && existing.status === 'In Process') {
-            // Mise à jour si non modifiée localement
-            await window.JHT_DB.saveIntervention({
-              ...existing,
-              ...normalized,
-              synced: true
-            });
-            savedCount++;
-          }
-          // Si l'intervention a été modifiée localement (synced: false), on ne l'écrase pas
+          // Sauvegarde ou mise à jour directe de l'intervention fraîchement récupérée
+          await window.JHT_DB.saveIntervention(normalized);
+          savedCount++;
         }
 
         return {
           success: true,
           count: savedCount,
-          message: `${savedCount} intervention(s) mise(s) à jour`
+          message: `${savedCount} intervention(s) actualisée(s)`
         };
       } else {
         return { success: false, count: 0, message: result.message || 'Réponse inattendue' };
@@ -179,43 +153,30 @@ const JHT_SYNC = (() => {
     }
   }
 
-  // ─── Sync automatique des en attente ───────────────────────────────────────
-
-  /**
-   * Récupère toutes les interventions non synchronisées et les envoie.
-   * Appelée au démarrage et lors du retour du réseau.
-   * @returns {Promise<{sent: number, failed: number, errors: string[]}>}
-   */
   async function pendingSync() {
     const pending = await window.JHT_DB.getPendingInterventions();
     const results = { sent: 0, failed: 0, errors: [] };
 
     if (pending.length === 0) {
-      console.log('[SYNC] Aucune intervention en attente de sync');
       return results;
     }
-
-    console.log(`[SYNC] ${pending.length} intervention(s) en attente de sync`);
 
     for (const intervention of pending) {
       const result = await syncToSheets(intervention);
       if (result.success) {
         results.sent++;
+        // Suppression automatique après sync réussie
+        await window.JHT_DB.deleteIntervention(intervention.id);
       } else {
         results.failed++;
         results.errors.push(`${intervention.caseNo}: ${result.message}`);
-        if (result.offline) {
-          // Pas de réseau, inutile de continuer
-          break;
-        }
+        if (result.offline) break;
       }
     }
 
-    console.log(`[SYNC] Terminé : ${results.sent} envoyées, ${results.failed} échouées`);
     return results;
   }
 
-  // ─── Export ─────────────────────────────────────────────────────────────────
   return {
     syncToSheets,
     fetchInterventions,
@@ -224,12 +185,9 @@ const JHT_SYNC = (() => {
 
 })();
 
-// Écouter les messages du Service Worker pour déclencher la sync
 navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'TRIGGER_SYNC') {
-    console.log('[SYNC] Sync déclenchée par le Service Worker');
     JHT_SYNC.pendingSync().then((results) => {
-      // Notifier l'app du résultat
       window.dispatchEvent(new CustomEvent('sync-complete', { detail: results }));
     });
   }
