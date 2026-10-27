@@ -27,6 +27,7 @@ const JHT_SYNC = (() => {
           activityId: intervention.activityId || '',
           regardingObjectId: intervention.regardingObjectId || '',
           caseNo: intervention.caseNo || '',
+          incidentNo: intervention.incidentNo || '',
           clientName: intervention.clientName || '',
           clinique: intervention.clinique || '',
           productName: intervention.productName || '',
@@ -121,6 +122,7 @@ const JHT_SYNC = (() => {
             activityId: item.activityId || '',
             regardingObjectId: item.regardingObjectId || '',
             caseNo: item.caseNo || '',
+            incidentNo: item.incidentNo || '',
             clientName: item.nomClient || item.clientName || '',
             clinique: item.clinique || '',
             productName: item.nomProduit || item.productName || '',
@@ -232,4 +234,3 @@ navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', (
     });
   }
 });
-

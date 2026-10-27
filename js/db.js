@@ -104,7 +104,8 @@ function promisifyRequest(request) {
  * @property {string} id               - Identifiant unique (UUID)
  * @property {string} activityId       - ID activité CRM (optionnel)
  * @property {string} regardingObjectId - ID objet CRM lié
- * @property {string} caseNo           - Numéro d'incident
+ * @property {string} caseNo           - Numéro de dossier (Case No)
+ * @property {string} incidentNo       - Numéro d'Incident du ticket
  * @property {string} clientName       - Nom du client
  * @property {string} clinique         - Nom de la clinique / site
  * @property {string} productName      - Nom du produit

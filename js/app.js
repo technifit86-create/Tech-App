@@ -28,9 +28,9 @@ const TTR_CODES = [
 
 // ─── État global ──────────────────────────────────────────────────────────────
 const AppState = {
-  currentView: null,       // 'config' | 'list' | 'detail'
+  currentView: null,         // 'config' | 'list' | 'detail'
   currentIntervention: null, // Intervention en cours d'édition
-  technicien: null,        // Identifiant technicien courant
+  technicien: null,          // Identifiant technicien courant
   isOnline: navigator.onLine
 };
 
@@ -39,6 +39,16 @@ const AppState = {
 /** Retourne la date du jour au format YYYY-MM-DD */
 function todayISO() {
   return new Date().toISOString().split('T')[0];
+}
+
+/** Convertit une date YYYY-MM-DD en JJ-MM-AAAA */
+function formatDateToJJMMYYYY(isoDateStr) {
+  if (!isoDateStr) return '';
+  if (isoDateStr.includes('-') && isoDateStr.split('-')[0].length === 4) {
+    const parts = isoDateStr.split('-');
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return isoDateStr;
 }
 
 /** Extrait le préfixe avant @ d'un email */
@@ -86,7 +96,6 @@ function showView(viewName) {
 async function initConfigView() {
   showView('config');
 
-  // Pré-remplir avec les valeurs existantes
   const savedEmail = await JHT_DB.getConfig('email');
   const savedUrl = await JHT_DB.getConfig('appsScriptUrl');
 
@@ -169,23 +178,24 @@ function createInterventionCard(interv) {
   const syncIcon = interv.synced ? '✅' : '⏳';
   const statusClass = interv.status === 'Complete' ? 'status--complete'
     : interv.status === 'Further Action' ? 'status--further'
+    : interv.status === 'Scheduled' ? 'status--scheduled'
     : 'status--inprocess';
 
   const dateStr = interv.dateDebut ? formatDate(interv.dateDebut) : formatDate(interv.createdAt);
 
   card.innerHTML = `
     <div class="card-header">
-      <span class="card-client">${escapeHtml(interv.clientName || 'Client inconnu')}</span>
+      <span class="card-client">${escapeHtml(interv.clientName || interv.nomClient || 'Client inconnu')}</span>
       <span class="sync-indicator" title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}">${syncIcon}</span>
     </div>
     <div class="card-body">
       <div class="card-row">
-        <span class="card-label">N° Incident</span>
-        <span class="card-value">${escapeHtml(interv.caseNo || '—')}</span>
+        <span class="card-label">Numéro d'Incident</span>
+        <span class="card-value">${escapeHtml(interv.incidentNo || '—')}</span>
       </div>
       <div class="card-row">
         <span class="card-label">Produit</span>
-        <span class="card-value">${escapeHtml(interv.productName || '—')}</span>
+        <span class="card-value">${escapeHtml(interv.productName || interv.nomProduit || '—')}</span>
       </div>
       <div class="card-row">
         <span class="card-label">Date</span>
@@ -216,14 +226,18 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Actualise depuis Google Sheets */
+/** Actualise depuis Google Sheets en filtrant par le technicien connecté */
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
   btn.disabled = true;
   btn.textContent = '⏳ Actualisation…';
 
   try {
-    const result = await JHT_SYNC.fetchInterventions();
+    if (!AppState.technicien) {
+      AppState.technicien = await JHT_DB.getConfig('technicien');
+    }
+
+    const result = await JHT_SYNC.fetchInterventions(AppState.technicien);
     if (result.success) {
       showToast(result.message, 'success');
       await renderInterventionList();
@@ -251,7 +265,6 @@ async function openInterventionDetail(id) {
   AppState.currentIntervention = intervention;
   await renderDetailView(intervention);
   showView('detail');
-  // Scroll en haut
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -259,12 +272,12 @@ async function openInterventionDetail(id) {
 async function openNewIntervention() {
   AppState.currentIntervention = {
     id: null,
-    status: 'In Process',
+    status: 'Scheduled',
     dateDebut: todayISO(),
     heureDebut: '',
-    dateFin: todayISO(),
     heureFin: '',
     pieces: [],
+    attachments: [],
     synced: false
   };
   await renderDetailView(AppState.currentIntervention);
@@ -273,24 +286,30 @@ async function openNewIntervention() {
 }
 
 async function renderDetailView(interv) {
-  // ── En-tête ──
-  document.getElementById('detail-client').textContent = interv.clientName || '—';
-  document.getElementById('detail-clinique').textContent = interv.clinique || '—';
+  document.getElementById('detail-client').textContent = interv.clientName || interv.nomClient || '—';
   document.getElementById('detail-case-no').textContent = interv.caseNo || '—';
-  document.getElementById('detail-product').textContent = interv.productName || '—';
-  document.getElementById('detail-serial').textContent = interv.serialNo || '—';
-  document.getElementById('detail-defect').textContent = interv.defectReport || '—';
+  document.getElementById('detail-incident-no').textContent = interv.incidentNo || '—';
+  document.getElementById('detail-product').textContent = interv.productName || interv.nomProduit || '—';
+  document.getElementById('detail-serial').textContent = interv.serialNo || interv.serieConsole || '—';
+  document.getElementById('detail-defect').textContent = interv.defectReport || interv.defautRapport || '—';
 
-  // ── Rapport ──
   const statusSelect = document.getElementById('detail-status');
-  statusSelect.value = (interv.status !== 'In Process') ? interv.status : 'Complete';
+  statusSelect.value = interv.status ? interv.status : 'Scheduled';
 
-  document.getElementById('detail-date-debut').value = interv.dateDebut || todayISO();
+  // Si la date stockée est en JJ-MM-AAAA, on la convertit en YYYY-MM-DD pour l'input date HTML
+  let dateVal = interv.dateDebut || todayISO();
+  if (dateVal.includes('-') && dateVal.split('-')[0].length === 2) {
+    const parts = dateVal.split('-');
+    dateVal = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  document.getElementById('detail-date-debut').value = dateVal;
   document.getElementById('detail-heure-debut').value = interv.heureDebut || '';
-  document.getElementById('detail-date-fin').value = interv.dateFin || todayISO();
-  document.getElementById('detail-heure-fin').value = interv.heureFin || '';
+  
+  const heureFinEl = document.getElementById('detail-heure-fin');
+  if (heureFinEl) {
+    heureFinEl.value = interv.heureFin || '';
+  }
 
-  // TTR Code
   const ttrSelect = document.getElementById('detail-ttr');
   ttrSelect.innerHTML = '<option value="">— Sélectionner —</option>';
   TTR_CODES.forEach((code) => {
@@ -301,14 +320,52 @@ async function renderDetailView(interv) {
     ttrSelect.appendChild(opt);
   });
 
-  // Pièces
   renderPiecesSection(interv.pieces || []);
-
-  // Travaux
-  document.getElementById('detail-travaux').value = interv.travauxEffectues || '';
-
-  // Indicateur sync
+  document.getElementById('detail-travaux').value = interv.travauxEffectues || interv.travaux || '';
+  setupFileAttachmentHandler(interv);
   updateSyncIndicator(interv.synced);
+}
+
+/** Gère la sélection de photos depuis la bibliothèque du téléphone */
+function setupFileAttachmentHandler(interv) {
+  const fileInput = document.getElementById('file-input');
+  const previewContainer = document.getElementById('attachments-preview');
+  
+  if (!interv.attachments) interv.attachments = [];
+
+  renderPreviews();
+
+  fileInput.onchange = (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (uploadEvent) => {
+        interv.attachments.push({
+          name: file.name,
+          data: uploadEvent.target.result
+        });
+        renderPreviews();
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  function renderPreviews() {
+    previewContainer.innerHTML = '';
+    interv.attachments.forEach((att, idx) => {
+      const thumb = document.createElement('div');
+      thumb.style.cssText = 'position: relative; width: 70px; height: 70px; border: 1px solid #ccc; border-radius: 4px; overflow: hidden;';
+      thumb.innerHTML = `
+        <img src="${att.data}" style="width: 100%; height: 100%; object-fit: cover;" alt="Photo" />
+        <button type="button" data-index="${idx}" style="position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 10px; cursor: pointer;">×</button>
+      `;
+      thumb.querySelector('button').onclick = () => {
+        interv.attachments.splice(idx, 1);
+        renderPreviews();
+      };
+      previewContainer.appendChild(thumb);
+    });
+  }
 }
 
 /** Affiche la section des pièces */
@@ -347,7 +404,6 @@ function renderPiecesSection(pieces) {
     container.appendChild(row);
   });
 
-  // Mettre à jour les quantités dans l'état
   container.querySelectorAll('.piece-qty-input').forEach((input) => {
     input.addEventListener('change', (e) => {
       const idx = parseInt(e.target.dataset.pieceIndex, 10);
@@ -384,22 +440,27 @@ async function saveAndSync() {
       return;
     }
 
-    // Lire les valeurs du formulaire
     interv.status = document.getElementById('detail-status').value;
-    interv.dateDebut = document.getElementById('detail-date-debut').value;
+    
+    // Formate la date de début au format JJ-MM-AAAA pour l'envoi vers Sheets
+    const rawDate = document.getElementById('detail-date-debut').value;
+    interv.dateDebut = formatDateToJJMMYYYY(rawDate);
+    
     interv.heureDebut = document.getElementById('detail-heure-debut').value;
-    interv.dateFin = document.getElementById('detail-date-fin').value;
-    interv.heureFin = document.getElementById('detail-heure-fin').value;
+    
+    const heureFinEl = document.getElementById('detail-heure-fin');
+    if (heureFinEl) {
+      interv.heureFin = heureFinEl.value;
+    }
+    
     interv.ttrCode = document.getElementById('detail-ttr').value;
     interv.travauxEffectues = document.getElementById('detail-travaux').value;
-    interv.synced = false; // Va être (re)synchronisé
+    interv.synced = false;
 
-    // Récupérer le technicien
     if (!interv.technicien) {
       interv.technicien = AppState.technicien || await JHT_DB.getConfig('technicien');
     }
 
-    // Lire les quantités de pièces depuis le DOM
     document.querySelectorAll('.piece-qty-input').forEach((input) => {
       const idx = parseInt(input.dataset.pieceIndex, 10);
       if (interv.pieces && interv.pieces[idx]) {
@@ -407,14 +468,12 @@ async function saveAndSync() {
       }
     });
 
-    // Sauvegarder en local d'abord
     const id = await JHT_DB.saveIntervention(interv);
     AppState.currentIntervention.id = id;
 
     showToast('Enregistré localement', 'info', 1500);
     updateSyncIndicator(false);
 
-    // Tenter la synchronisation si en ligne
     if (AppState.isOnline) {
       btn.textContent = '📡 Synchronisation…';
       const syncResult = await JHT_SYNC.syncToSheets(AppState.currentIntervention);
@@ -425,7 +484,6 @@ async function saveAndSync() {
         showToast('Synchronisé avec Google Sheets !', 'success');
       } else if (syncResult.offline) {
         showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
-        // Enregistrer une demande de Background Sync
         if ('serviceWorker' in navigator && 'SyncManager' in window) {
           const sw = await navigator.serviceWorker.ready;
           await sw.sync.register('jht-sync-interventions').catch(() => {});
@@ -437,7 +495,6 @@ async function saveAndSync() {
       showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
     }
 
-    // Rafraîchir la liste en arrière-plan
     renderInterventionList().catch(() => {});
 
   } catch (error) {
@@ -466,7 +523,6 @@ function updateOnlineStatus() {
   }
 
   if (AppState.isOnline) {
-    // Retour en ligne : déclencher sync auto
     JHT_SYNC.pendingSync().then((results) => {
       if (results.sent > 0) {
         showToast(`${results.sent} intervention(s) synchronisée(s)`, 'success');
@@ -481,7 +537,6 @@ function updateOnlineStatus() {
 async function init() {
   console.log('[APP] Initialisation JHT Tech App');
 
-  // Charger la config
   const email = await JHT_DB.getConfig('email');
   const technicien = await JHT_DB.getConfig('technicien');
   AppState.technicien = technicien;
@@ -489,11 +544,9 @@ async function init() {
   updateHeader();
   updateOnlineStatus();
 
-  // Événements réseau
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
 
-  // Événements de sync
   window.addEventListener('sync-complete', (e) => {
     if (e.detail && e.detail.sent > 0) {
       showToast(`${e.detail.sent} sync(s) effectuée(s)`, 'success');
@@ -501,7 +554,6 @@ async function init() {
     }
   });
 
-  // Brancher les boutons
   document.getElementById('btn-save-config').addEventListener('click', saveConfig);
   document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
   document.getElementById('btn-back').addEventListener('click', () => initListView());
@@ -509,7 +561,6 @@ async function init() {
   document.getElementById('btn-new').addEventListener('click', openNewIntervention);
   document.getElementById('btn-settings').addEventListener('click', initConfigView);
 
-  // Enregistrer le Service Worker
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('./service-worker.js');
@@ -519,17 +570,14 @@ async function init() {
     }
   }
 
-  // Décider quelle vue afficher
   if (!email) {
     await initConfigView();
   } else {
     await initListView();
-    // Sync auto au démarrage si en ligne
     if (AppState.isOnline) {
       JHT_SYNC.pendingSync().catch(() => {});
     }
   }
 }
 
-// Lancer l'app quand le DOM est prêt
 document.addEventListener('DOMContentLoaded', init);
