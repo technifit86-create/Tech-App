@@ -1,12 +1,11 @@
 /**
- * Service Worker — JHT Tech App
- * Stratégie : Cache-First pour les assets statiques, Background Sync pour les données
+ * Service Worker — JHT Tech App (Version mise à jour)
+ * Gère le cache dynamique et force le nettoyage des anciennes versions.
  */
 
-const CACHE_NAME = 'jht-tech-v1';
+const CACHE_NAME = 'jht-tech-v2'; // 👈 Passage en v2 pour purger l'ancien cache
 const SYNC_TAG = 'jht-sync-interventions';
 
-// Fichiers à mettre en cache lors de l'installation
 const STATIC_ASSETS = [
   './index.html',
   './css/style.css',
@@ -18,77 +17,75 @@ const STATIC_ASSETS = [
 
 // ─── Installation ────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installation en cours…');
+  console.log('[SW] Installation v2 en cours…');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Mise en cache des assets statiques');
+      console.log('[SW] Mise en cache des nouveaux assets statiques');
       return cache.addAll(STATIC_ASSETS);
     }).then(() => {
-      // Force l'activation immédiate sans attendre la fermeture des autres onglets
-      return self.skipWaiting();
+      return self.skipWaiting(); // Force l'activation immédiate
     })
   );
 });
 
 // ─── Activation ──────────────────────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activation…');
+  console.log('[SW] Activation v2 — Suppression des vieux caches…');
   event.waitUntil(
-    // Supprimer les anciens caches
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
           .map((name) => {
-            console.log('[SW] Suppression ancien cache :', name);
+            console.log('[SW] Suppression ancien cache obsolète :', name);
             return caches.delete(name);
           })
       );
     }).then(() => {
-      // Prendre le contrôle de tous les clients immédiatement
-      return self.clients.claim();
+      return self.clients.claim(); // Prend le contrôle direct de toutes les pages ouvertes
     })
   );
 });
 
-// ─── Fetch — Stratégie Cache-First ───────────────────────────────────────────
+// ─── Fetch — Stratégie Network-First pour les scripts, Cache-First pour le reste ─
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Ne pas intercepter les requêtes non-GET ou vers des API externes
   if (request.method !== 'GET') return;
   if (request.url.includes('script.google.com')) return;
 
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Asset en cache : répondre immédiatement
-        // Mettre à jour le cache en arrière-plan (stale-while-revalidate)
-        fetch(request).then((networkResponse) => {
+  // Pour les fichiers JS/HTML, on essaie d'abord le réseau pour avoir toujours la dernière version
+  if (request.url.includes('.js') || request.url.includes('.html') || request.url.includes('style.css')) {
+    event.respondWith(
+      fetch(request)
+        .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, networkResponse.clone());
+              cache.put(request, responseClone);
             });
           }
-        }).catch(() => { /* Pas de réseau, pas grave */ });
-        return cachedResponse;
-      }
-
-      // Pas en cache : tenter le réseau
-      return fetch(request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
           return networkResponse;
-        }
-        // Mettre en cache pour la prochaine fois
+        })
+        .catch(() => {
+          // Si pas de réseau, on bascule sur le cache de secours
+          return caches.match(request);
+        })
+    );
+    return;
+  }
+
+  // Pour le reste (images, icônes) : Cache-First classique
+  event.respondWith(
+    caches.match(request).then((cachedResponse) => {
+      if (cachedResponse) return cachedResponse;
+      return fetch(request).then((networkResponse) => {
+        if (!networkResponse || networkResponse.status !== 200) return networkResponse;
+        const responseClone = networkResponse.clone();
         caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, networkResponse.clone());
+          cache.put(request, responseClone);
         });
         return networkResponse;
-      }).catch(() => {
-        // Fallback offline pour les pages HTML
-        if (request.headers.get('accept').includes('text/html')) {
-          return caches.match('./index.html');
-        }
       });
     })
   );
@@ -96,24 +93,16 @@ self.addEventListener('fetch', (event) => {
 
 // ─── Background Sync ─────────────────────────────────────────────────────────
 self.addEventListener('sync', (event) => {
-  console.log('[SW] Background Sync déclenché :', event.tag);
   if (event.tag === SYNC_TAG) {
     event.waitUntil(syncPendingInterventions());
   }
 });
 
-/**
- * Synchronise les interventions en attente avec Google Sheets.
- * Cette fonction communique avec la page via postMessage pour
- * déclencher la logique de sync définie dans sync.js.
- */
 async function syncPendingInterventions() {
   const allClients = await self.clients.matchAll({ type: 'window' });
   if (allClients.length > 0) {
-    // Un onglet est ouvert : déléguer la sync à l'app
     allClients[0].postMessage({ type: 'TRIGGER_SYNC' });
   }
-  // Si aucun client n'est ouvert, la sync sera faite au prochain lancement
 }
 
 // ─── Messages depuis l'app ────────────────────────────────────────────────────
@@ -122,8 +111,6 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
   if (event.data && event.data.type === 'REQUEST_SYNC') {
-    self.registration.sync.register(SYNC_TAG).catch((err) => {
-      console.warn('[SW] Background sync non disponible :', err);
-    });
+    self.registration.sync.register(SYNC_TAG).catch(() => {});
   }
 });
