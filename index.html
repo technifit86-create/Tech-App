@@ -145,12 +145,12 @@
           <span class="info-value" id="detail-client" aria-label="Nom du client">—</span>
         </div>
         <div class="info-row">
-          <span class="info-label">Clinique / Site</span>
-          <span class="info-value" id="detail-clinique" aria-label="Clinique ou site">—</span>
+          <span class="info-label">Case No</span>
+          <span class="info-value" id="detail-case-no" aria-label="Numéro de dossier">—</span>
         </div>
         <div class="info-row">
           <span class="info-label">N° Incident</span>
-          <span class="info-value" id="detail-case-no" aria-label="Numéro d'incident">—</span>
+          <span class="info-value" id="detail-incident-no" aria-label="Numéro d'incident">—</span>
         </div>
         <div class="info-row">
           <span class="info-label">Produit</span>
@@ -172,16 +172,17 @@
       <section class="section-rapport" aria-label="Rapport d'intervention">
         <h2>📝 Rapport</h2>
 
-        <!-- Statut -->
+        <!-- Statut avec Scheduled ajouté -->
         <div class="form-group">
           <label for="detail-status">Statut de l'intervention</label>
           <select id="detail-status" aria-required="true">
+            <option value="Scheduled">Scheduled</option>
             <option value="Complete">Complete</option>
             <option value="Further Action">Further Action</option>
           </select>
         </div>
 
-        <!-- Dates & heures -->
+        <!-- Dates & heures (Date de fin supprimée) -->
         <div class="row-2col">
           <div class="form-group">
             <label for="detail-date-debut">Date de début</label>
@@ -193,15 +194,9 @@
           </div>
         </div>
 
-        <div class="row-2col">
-          <div class="form-group">
-            <label for="detail-date-fin">Date de fin</label>
-            <input type="date" id="detail-date-fin" />
-          </div>
-          <div class="form-group">
-            <label for="detail-heure-fin">Heure fin</label>
-            <input type="time" id="detail-heure-fin" placeholder="HH:MM" />
-          </div>
+        <div class="form-group">
+          <label for="detail-heure-fin">Heure fin</label>
+          <input type="time" id="detail-heure-fin" placeholder="HH:MM" />
         </div>
 
         <!-- TTR Deviation Code -->
@@ -233,6 +228,20 @@
             aria-required="true"
             rows="6"
           ></textarea>
+        </div>
+      </section>
+
+      <!-- ── Pièces jointes / Photos ── -->
+      <section class="section-attachments" aria-label="Pièces jointes">
+        <h2>📎 Pièces jointes</h2>
+        <div class="form-group">
+          <label for="file-input" class="btn btn--secondary" style="display: inline-block; text-align: center; cursor: pointer; padding: 10px 16px; background: #e0e0e0; border-radius: 6px; font-weight: bold; color: #333;">
+            📁 Choisir une photo de la bibliothèque
+          </label>
+          <input type="file" id="file-input" accept="image/*" style="display: none;" />
+        </div>
+        <div id="attachments-preview" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+          <!-- Aperçu des photos sélectionnées -->
         </div>
       </section>
 
