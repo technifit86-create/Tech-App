@@ -331,6 +331,9 @@ async function renderDetailView(interv) {
   document.getElementById('detail-travaux').value = interv.travauxEffectues || interv.travaux || '';
   setupFileAttachmentHandler(interv);
   updateSyncIndicator(interv.synced);
+  
+  // Initialisation dynamique du bouton de sauvegarde et des horloges
+  setupFormValidationAndClock();
 }
 
 /** Gère la sélection de photos depuis la bibliothèque du téléphone */
@@ -431,6 +434,85 @@ function updateSyncIndicator(isSynced) {
     indicator.textContent = '⏳ Enregistré localement — en attente de sync';
     indicator.className = 'sync-status sync-status--pending';
   }
+}
+
+// ─── Déverrouillage dynamique et horloges instantanées ───────────────────────
+
+function setupFormValidationAndClock() {
+  const saveBtn = document.getElementById('btn-save');
+  
+  // Fonction globale pour valider si tous les champs essentiels sont remplis
+  function validateForm() {
+    if (!saveBtn) return;
+
+    const statusVal = document.getElementById('detail-status')?.value;
+    const dateVal = document.getElementById('detail-date-debut')?.value;
+    const heureDebutVal = document.getElementById('detail-heure-debut')?.value;
+    const heureFinVal = document.getElementById('detail-heure-fin')?.value;
+    const ttrVal = document.getElementById('detail-ttr')?.value;
+    const travauxVal = document.getElementById('detail-travaux')?.value;
+
+    // Condition pour considérer le formulaire complet
+    const allFilled = Boolean(
+      statusVal && statusVal.trim() !== '' &&
+      dateVal && dateVal.trim() !== '' &&
+      heureDebutVal && heureDebutVal.trim() !== '' &&
+      heureFinVal && heureFinVal.trim() !== '' &&
+      ttrVal && ttrVal.trim() !== '' &&
+      travauxVal && travauxVal.trim() !== ''
+    );
+
+    if (allFilled) {
+      saveBtn.removeAttribute('disabled');
+      saveBtn.style.opacity = '1';
+      saveBtn.style.cursor = 'pointer';
+    } else {
+      saveBtn.setAttribute('disabled', 'true');
+      saveBtn.style.opacity = '0.4';
+      saveBtn.style.cursor = 'not-allowed';
+    }
+  }
+
+  // Écouter les modifications sur tous les champs de la vue détail
+  const formElements = document.querySelectorAll('#view-detail input, #view-detail select, #view-detail textarea');
+  formElements.forEach(el => {
+    el.addEventListener('input', validateForm);
+    el.addEventListener('change', validateForm);
+  });
+
+  // Gestion du remplissage automatique de l'heure actuelle au clic sur les icônes d'horloge ou les champs
+  const timeInputs = document.querySelectorAll('#detail-heure-debut, #detail-heure-fin');
+  timeInputs.forEach(input => {
+    const parentContainer = input.parentElement;
+
+    const setNowTime = () => {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      
+      input.value = `${hours}:${minutes}`;
+
+      // Déclencher les événements pour que l'app prenne en compte la modification
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      validateForm();
+    };
+
+    // Si on clique sur le conteneur englobant (visant l'icône d'horloge à droite)
+    if (parentContainer) {
+      parentContainer.addEventListener('click', (e) => {
+        if (e.target !== input) {
+          setNowTime();
+        }
+      });
+    }
+
+    // Double-clic direct sur le champ d'heure comme raccourci
+    input.addEventListener('dblclick', setNowTime);
+  });
+
+  // Vérification initiale dès l'ouverture de la vue détail
+  validateForm();
 }
 
 // ─── Sauvegarde et sync ────────────────────────────────────────────────────────
