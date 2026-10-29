@@ -15,7 +15,6 @@ const TTR_CODES = [
   'PT – Part(s) not stock in warehouse/service centre',
   'PT – Back order from factory',
   'EQ – Frame failure',
-  'SC – Achieved TTR Target',
   'DF – Diagnostic error',
   'NTF – No trouble found',
   'EN – 3rd party delay',
