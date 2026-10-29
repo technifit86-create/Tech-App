@@ -6,27 +6,6 @@
  *   2 - Détail / Formulaire d'une intervention
  */
 
-// Fonction pour afficher/masquer dynamiquement le bloc TTR selon le statut
-function toggleTtrVisibility() {
-  const statusSelect = document.getElementById('detail-status');
-  // Supposons que le conteneur du bloc TTR s'appelle 'ttr-container'
-  const ttrContainer = document.getElementById('ttr-container'); 
-
-  if (statusSelect && ttrContainer) {
-    if (statusSelect.value === 'Further Action') {
-      ttrContainer.style.display = 'block'; // Afficher si "Further Action"
-    } else {
-      ttrContainer.style.display = 'none';  // Masquer si "Scheduled" ou "Complete"
-      // Optionnel : réinitialiser la valeur du TTR si masqué
-      const ttrSelect = document.getElementById('detail-ttr');
-      if (ttrSelect) ttrSelect.value = '';
-    }
-  }
-}
-
-// À appeler lors du chargement de la vue détail et lors du changement de statut :
-document.getElementById('detail-status')?.addEventListener('change', toggleTtrVisibility);
-
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
 const TTR_CODES = [
   'CU – Incorrect fault description',
@@ -340,13 +319,32 @@ async function renderDetailView(interv) {
     ttrSelect.appendChild(opt);
   });
 
+  // Gestion de l'affichage dynamique de l'encadré TTR selon le statut initial
+  updateTtrVisibility();
+
   renderPiecesSection(interv.pieces || []);
   document.getElementById('detail-travaux').value = interv.travauxEffectues || interv.travaux || '';
   setupFileAttachmentHandler(interv);
   updateSyncIndicator(interv.synced);
   
-  // Initialisation dynamique du bouton de sauvegarde et des horloges
+  // Initialisation dynamique du bouton de sauvegarde, des horloges et de l'écouteur de statut
   setupFormValidationAndClock();
+}
+
+/** Affiche ou masque dynamiquement le bloc TTR selon le statut sélectionné */
+function updateTtrVisibility() {
+  const statusSelect = document.getElementById('detail-status');
+  const ttrContainer = document.getElementById('ttr-container');
+  const ttrSelect = document.getElementById('detail-ttr');
+
+  if (statusSelect && ttrContainer) {
+    if (statusSelect.value === 'Further Action') {
+      ttrContainer.style.display = 'block';
+    } else {
+      ttrContainer.style.display = 'none';
+      if (ttrSelect) ttrSelect.value = ''; // Réinitialiser si masqué
+    }
+  }
 }
 
 /** Gère la sélection de photos depuis la bibliothèque du téléphone */
@@ -453,6 +451,15 @@ function updateSyncIndicator(isSynced) {
 
 function setupFormValidationAndClock() {
   const saveBtn = document.getElementById('btn-save');
+  const statusSelect = document.getElementById('detail-status');
+
+  // Gérer le changement de visibilité et recalculer la validation quand le statut change
+  if (statusSelect) {
+    statusSelect.onchange = () => {
+      updateTtrVisibility();
+      validateForm();
+    };
+  }
   
   // Fonction globale pour valider si tous les champs essentiels sont remplis
   function validateForm() {
@@ -465,13 +472,19 @@ function setupFormValidationAndClock() {
     const ttrVal = document.getElementById('detail-ttr')?.value;
     const travauxVal = document.getElementById('detail-travaux')?.value;
 
+    // Le TTR Deviation Code n'est requis que si le statut est "Further Action"
+    let ttrValid = true;
+    if (statusVal === 'Further Action') {
+      ttrValid = Boolean(ttrVal && ttrVal.trim() !== '');
+    }
+
     // Condition pour considérer le formulaire complet
     const allFilled = Boolean(
       statusVal && statusVal.trim() !== '' &&
       dateVal && dateVal.trim() !== '' &&
       heureDebutVal && heureDebutVal.trim() !== '' &&
       heureFinVal && heureFinVal.trim() !== '' &&
-      ttrVal && ttrVal.trim() !== '' &&
+      ttrValid &&
       travauxVal && travauxVal.trim() !== ''
     );
 
@@ -554,7 +567,13 @@ async function saveAndSync() {
       interv.heureFin = heureFinEl.value;
     }
     
-    interv.ttrCode = document.getElementById('detail-ttr').value;
+    // Si le statut n'est pas "Further Action", on vide le code TTR enregistré
+    if (interv.status === 'Further Action') {
+      interv.ttrCode = document.getElementById('detail-ttr').value;
+    } else {
+      interv.ttrCode = '';
+    }
+
     interv.travauxEffectues = document.getElementById('detail-travaux').value;
     interv.synced = false;
 
