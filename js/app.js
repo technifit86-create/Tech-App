@@ -6,8 +6,27 @@
  *   2 - Détail / Formulaire d'une intervention
  */
 
+// Fonction pour afficher/masquer dynamiquement le bloc TTR selon le statut
+function toggleTtrVisibility() {
+  const statusSelect = document.getElementById('detail-status');
+  // Supposons que le conteneur du bloc TTR s'appelle 'ttr-container'
+  const ttrContainer = document.getElementById('ttr-container'); 
+
+  if (statusSelect && ttrContainer) {
+    if (statusSelect.value === 'Further Action') {
+      ttrContainer.style.display = 'block'; // Afficher si "Further Action"
+    } else {
+      ttrContainer.style.display = 'none';  // Masquer si "Scheduled" ou "Complete"
+      // Optionnel : réinitialiser la valeur du TTR si masqué
+      const ttrSelect = document.getElementById('detail-ttr');
+      if (ttrSelect) ttrSelect.value = '';
+    }
+  }
+}
+
 // À appeler lors du chargement de la vue détail et lors du changement de statut :
 document.getElementById('detail-status')?.addEventListener('change', toggleTtrVisibility);
+
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
 const TTR_CODES = [
   'CU – Incorrect fault description',
