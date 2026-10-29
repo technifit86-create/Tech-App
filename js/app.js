@@ -8,20 +8,14 @@
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
 const TTR_CODES = [
-  'SC – Scheduling / Resource',
-  'CU – Customer unavailable',
   'CU – Incorrect fault description',
-  'CU – Customer damage / misuse',
+  'EQ – Frame failure',
   'PT – Part(s) not stock in warehouse/service centre',
   'PT – Back order from factory',
-  'EQ – Frame failure',
   'DE – Diagnostic error',
-  'NTF – No trouble found',
-  'EN – In house technician delay',
-  'QA – Quality / design problem',
-  'QA – Parts damage from OOB',
-  'PT – Transportation LT',
-  'QA – Cosmetically or minor issue'
+  'PT – Carry wrong parts',
+  'CU – Customer required fix again',
+  'QA – Qulaity / design problem'
 ];
 
 // ─── État global ──────────────────────────────────────────────────────────────
