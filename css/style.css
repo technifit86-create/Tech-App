@@ -954,3 +954,8 @@ textarea {
   outline: 3px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* Masquage par défaut du conteneur TTR (affiché dynamiquement si "Further Action") */
+#ttr-container {
+  display: none;
+}
