@@ -2,7 +2,7 @@
  * app.js — Application principale JHT Tech App
  * SPA (Single Page Application) avec 3 vues :
  *   0 - Configuration (premier lancement)
- *   1 - Liste des interventions
+ *   1 - Liste des interventions (groupées par Case No)
  *   2 - Détail / Formulaire d'une intervention
  */
 
@@ -126,11 +126,31 @@ async function saveConfig() {
   await initListView();
 }
 
-// ─── Vue 1 — Liste des interventions ─────────────────────────────────────────
+// ─── Vue 1 — Liste des interventions (Regroupées par Case No) ─────────────────
 
 async function initListView() {
   showView('list');
   await renderInterventionList();
+}
+
+/** Regroupe les interventions par numéro de dossier (Case No) */
+function groupInterventionsByCase(interventions) {
+  const grouped = {};
+
+  interventions.forEach(interv => {
+    const caseNo = interv.caseNo || 'Sans Dossier';
+    if (!grouped[caseNo]) {
+      grouped[caseNo] = {
+        caseNo: caseNo,
+        clientName: interv.clientName || interv.nomClient || 'Client inconnu',
+        productName: interv.productName || interv.nomProduit || 'Produit non spécifié',
+        interventions: []
+      };
+    }
+    grouped[caseNo].interventions.push(interv);
+  });
+
+  return Object.values(grouped);
 }
 
 async function renderInterventionList() {
@@ -150,9 +170,12 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    interventions.forEach((interv) => {
-      const card = createInterventionCard(interv);
-      listContainer.appendChild(card);
+    // Regroupement par Case No
+    const groupedData = groupInterventionsByCase(interventions);
+
+    groupedData.forEach((group) => {
+      const caseCard = createCaseCard(group);
+      listContainer.appendChild(caseCard);
     });
   } catch (error) {
     listContainer.innerHTML = '<div class="error-message">Erreur de chargement</div>';
@@ -160,49 +183,72 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée un élément card pour une intervention */
-function createInterventionCard(interv) {
+/** Crée une carte parente pour un groupe de dossier (Case No) */
+function createCaseCard(group) {
   const card = document.createElement('div');
-  card.className = 'intervention-card';
-  card.setAttribute('role', 'button');
-  card.setAttribute('tabindex', '0');
-
-  const syncIcon = interv.synced ? '✅' : '⏳';
-  const statusClass = interv.status === 'Complete' ? 'status--complete'
-    : interv.status === 'Further Action' ? 'status--further'
-    : interv.status === 'Scheduled' ? 'status--scheduled'
-    : 'status--inprocess';
-
-  const dateStr = interv.dateDebut ? formatDate(interv.dateDebut) : formatDate(interv.createdAt);
-
-  card.innerHTML = `
-    <div class="card-header">
-      <span class="card-client">${escapeHtml(interv.clientName || interv.nomClient || 'Client inconnu')}</span>
-      <span class="sync-indicator" title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}">${syncIcon}</span>
-    </div>
-    <div class="card-body">
-      <div class="card-row">
-        <span class="card-label">Numéro d'Incident</span>
-        <span class="card-value">${escapeHtml(interv.incidentNo || '—')}</span>
-      </div>
-      <div class="card-row">
-        <span class="card-label">Produit</span>
-        <span class="card-value">${escapeHtml(interv.productName || interv.nomProduit || '—')}</span>
-      </div>
-      <div class="card-row">
-        <span class="card-label">Date</span>
-        <span class="card-value">${dateStr}</span>
-      </div>
-    </div>
-    <div class="card-footer">
-      <span class="status-badge ${statusClass}">${escapeHtml(interv.status || 'In Process')}</span>
-      <span class="card-arrow">›</span>
-    </div>
+  card.className = 'case-group-card';
+  card.style.cssText = `
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   `;
 
-  card.addEventListener('click', () => openInterventionDetail(interv.id));
-  card.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') openInterventionDetail(interv.id);
+  // En-tête du groupe de dossier
+  let htmlContent = `
+    <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
+      <div>
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">Dossier Case No</span>
+        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">${escapeHtml(group.caseNo)}</h3>
+        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)} | 📦 ${escapeHtml(group.productName)}</span>
+      </div>
+      <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
+        ${group.interventions.length} intervention(s)
+      </span>
+    </div>
+    <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
+  `;
+
+  // Génération des sous-éléments pour chaque intervention du dossier
+  group.interventions.forEach((interv) => {
+    const syncIcon = interv.synced ? '✅' : '⏳';
+    const statusClass = interv.status === 'Complete' ? 'status--complete'
+      : interv.status === 'Further Action' ? 'status--further'
+      : interv.status === 'Scheduled' ? 'status--scheduled'
+      : 'status--inprocess';
+
+    const dateStr = interv.dateDebut ? formatDate(interv.dateDebut) : formatDate(interv.createdAt);
+
+    htmlContent += `
+      <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
+        <div>
+          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 2px;">
+            Incident : ${escapeHtml(interv.incidentNo || '—')} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
+          </div>
+          <div>
+            <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}" style="font-size: 14px;">${syncIcon}</span>
+          <span style="color: #c0392b; font-weight: bold; font-size: 16px;">›</span>
+        </div>
+      </div>
+    `;
+  });
+
+  htmlContent += `</div>`;
+  card.innerHTML = htmlContent;
+
+  // Ajout des écouteurs de clics sur chaque sous-élément d'intervention
+  card.querySelectorAll('.sub-intervention-item').forEach(item => {
+    const intervId = item.getAttribute('data-id');
+    item.addEventListener('click', () => openInterventionDetail(intervId));
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') openInterventionDetail(intervId);
+    });
   });
 
   return card;
@@ -229,13 +275,11 @@ async function refreshFromSheets() {
       AppState.technicien = await JHT_DB.getConfig('technicien');
     }
 
-    // 1. Purger toutes les interventions stockées localement en IndexedDB
     const allLocal = await JHT_DB.getAllInterventions();
     for (const interv of allLocal) {
       await JHT_DB.deleteIntervention(interv.id);
     }
 
-    // 2. Télécharger uniquement la liste fraîche filtrée depuis Google Sheets
     const result = await JHT_SYNC.fetchInterventions(AppState.technicien);
     if (result.success) {
       showToast('Liste réinitialisée et à jour !', 'success');
@@ -268,7 +312,6 @@ async function openInterventionDetail(id) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/** Ouvre un formulaire vide pour créer une nouvelle intervention */
 async function openNewIntervention() {
   AppState.currentIntervention = {
     id: null,
@@ -319,7 +362,6 @@ async function renderDetailView(interv) {
     ttrSelect.appendChild(opt);
   });
 
-  // Gestion de l'affichage dynamique de l'encadré TTR selon le statut initial
   updateTtrVisibility();
 
   renderPiecesSection(interv.pieces || []);
@@ -327,11 +369,9 @@ async function renderDetailView(interv) {
   setupFileAttachmentHandler(interv);
   updateSyncIndicator(interv.synced);
   
-  // Initialisation dynamique du bouton de sauvegarde, des horloges et de l'écouteur de statut
   setupFormValidationAndClock();
 }
 
-/** Affiche ou masque dynamiquement le bloc TTR selon le statut sélectionné */
 function updateTtrVisibility() {
   const statusSelect = document.getElementById('detail-status');
   const ttrContainer = document.getElementById('ttr-container');
@@ -342,12 +382,11 @@ function updateTtrVisibility() {
       ttrContainer.style.display = 'block';
     } else {
       ttrContainer.style.display = 'none';
-      if (ttrSelect) ttrSelect.value = ''; // Réinitialiser si masqué
+      if (ttrSelect) ttrSelect.value = '';
     }
   }
 }
 
-/** Gère la sélection de photos depuis la bibliothèque du téléphone */
 function setupFileAttachmentHandler(interv) {
   const fileInput = document.getElementById('file-input');
   const previewContainer = document.getElementById('attachments-preview');
@@ -389,7 +428,6 @@ function setupFileAttachmentHandler(interv) {
   }
 }
 
-/** Affiche la section des pièces */
 function renderPiecesSection(pieces) {
   const container = document.getElementById('pieces-container');
 
@@ -435,7 +473,6 @@ function renderPiecesSection(pieces) {
   });
 }
 
-/** Met à jour l'indicateur de statut sync */
 function updateSyncIndicator(isSynced) {
   const indicator = document.getElementById('sync-status');
   if (isSynced) {
@@ -447,13 +484,10 @@ function updateSyncIndicator(isSynced) {
   }
 }
 
-// ─── Déverrouillage dynamique et horloges instantanées ───────────────────────
-
 function setupFormValidationAndClock() {
   const saveBtn = document.getElementById('btn-save');
   const statusSelect = document.getElementById('detail-status');
 
-  // Gérer le changement de visibilité et recalculer la validation quand le statut change
   if (statusSelect) {
     statusSelect.onchange = () => {
       updateTtrVisibility();
@@ -461,7 +495,6 @@ function setupFormValidationAndClock() {
     };
   }
   
-  // Fonction globale pour valider si tous les champs essentiels sont remplis
   function validateForm() {
     if (!saveBtn) return;
 
@@ -472,13 +505,11 @@ function setupFormValidationAndClock() {
     const ttrVal = document.getElementById('detail-ttr')?.value;
     const travauxVal = document.getElementById('detail-travaux')?.value;
 
-    // Le TTR Deviation Code n'est requis que si le statut est "Further Action"
     let ttrValid = true;
     if (statusVal === 'Further Action') {
       ttrValid = Boolean(ttrVal && ttrVal.trim() !== '');
     }
 
-    // Condition pour considérer le formulaire complet
     const allFilled = Boolean(
       statusVal && statusVal.trim() !== '' &&
       dateVal && dateVal.trim() !== '' &&
@@ -499,14 +530,12 @@ function setupFormValidationAndClock() {
     }
   }
 
-  // Écouter les modifications sur tous les champs de la vue détail
   const formElements = document.querySelectorAll('#view-detail input, #view-detail select, #view-detail textarea');
   formElements.forEach(el => {
     el.addEventListener('input', validateForm);
     el.addEventListener('change', validateForm);
   });
 
-  // Gestion du remplissage automatique de l'heure actuelle au clic sur les icônes d'horloge ou les champs
   const timeInputs = document.querySelectorAll('#detail-heure-debut, #detail-heure-fin');
   timeInputs.forEach(input => {
     const parentContainer = input.parentElement;
@@ -518,13 +547,11 @@ function setupFormValidationAndClock() {
       
       input.value = `${hours}:${minutes}`;
 
-      // Déclencher les événements pour que l'app prenne en compte la modification
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
       validateForm();
     };
 
-    // Si on clique sur le conteneur englobant (visant l'icône d'horloge à droite)
     if (parentContainer) {
       parentContainer.addEventListener('click', (e) => {
         if (e.target !== input) {
@@ -533,15 +560,11 @@ function setupFormValidationAndClock() {
       });
     }
 
-    // Double-clic direct sur le champ d'heure comme raccourci
     input.addEventListener('dblclick', setNowTime);
   });
 
-  // Vérification initiale dès l'ouverture de la vue détail
   validateForm();
 }
-
-// ─── Sauvegarde et sync ────────────────────────────────────────────────────────
 
 async function saveAndSync() {
   const btn = document.getElementById('btn-save');
@@ -567,7 +590,6 @@ async function saveAndSync() {
       interv.heureFin = heureFinEl.value;
     }
     
-    // Si le statut n'est pas "Further Action", on vide le code TTR enregistré
     if (interv.status === 'Further Action') {
       interv.ttrCode = document.getElementById('detail-ttr').value;
     } else {
@@ -603,7 +625,6 @@ async function saveAndSync() {
         updateSyncIndicator(true);
         showToast('Synchronisé avec Google Sheets !', 'success');
 
-        // Suppression immédiate de la base locale
         await JHT_DB.deleteIntervention(AppState.currentIntervention.id);
 
         setTimeout(() => {
@@ -634,8 +655,6 @@ async function saveAndSync() {
   }
 }
 
-// ─── Header & réseau ──────────────────────────────────────────────────────────
-
 function updateHeader() {
   const techEl = document.getElementById('header-technicien');
   if (techEl && AppState.technicien) {
@@ -659,8 +678,6 @@ function updateOnlineStatus() {
     });
   }
 }
-
-// ─── Initialisation ───────────────────────────────────────────────────────────
 
 async function init() {
   console.log('[APP] Initialisation JHT Tech App');
