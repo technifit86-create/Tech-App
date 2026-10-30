@@ -19,9 +19,7 @@
 </head>
 <body>
 
-  <!-- ═══════════════════════════════════════════════════
-       HEADER — Sticky, toujours visible
-  ════════════════════════════════════════════════════ -->
+  <!-- HEADER -->
   <header class="app-header" role="banner">
     <div class="header-brand">
       <div class="header-logo" aria-hidden="true">JHT</div>
@@ -33,17 +31,13 @@
     </div>
   </header>
 
-  <!-- ═══════════════════════════════════════════════════
-       BANDEAU OFFLINE
-  ════════════════════════════════════════════════════ -->
+  <!-- BANDEAU OFFLINE -->
   <div id="offline-banner" role="alert" aria-live="polite">
     <span>📡</span>
     <span>Mode hors ligne — les données seront synchronisées au retour du réseau</span>
   </div>
 
-  <!-- ═══════════════════════════════════════════════════
-       VUE 0 — Configuration
-  ════════════════════════════════════════════════════ -->
+  <!-- VUE 0 — Configuration -->
   <main id="view-config" class="view" role="main" aria-label="Configuration">
     <div class="config-header">
       <div class="logo-large" aria-hidden="true">JHT</div>
@@ -53,126 +47,90 @@
 
     <div class="form-card">
       <h2>👤 Votre identifiant</h2>
-
       <div class="form-group">
         <label for="config-email">Email technicien</label>
-        <input
-          type="email"
-          id="config-email"
-          placeholder="ex: abraham.randria@matrixfitness.nl"
-          autocomplete="email"
-          inputmode="email"
-          aria-required="true"
-        />
+        <input type="email" id="config-email" placeholder="ex: abraham.randria@matrixfitness.nl" autocomplete="email" inputmode="email" aria-required="true" />
       </div>
     </div>
 
     <div class="form-card">
       <h2>🔗 Connexion Google Sheets</h2>
-
       <div class="form-group">
         <label for="config-url">URL Apps Script</label>
-        <input
-          type="url"
-          id="config-url"
-          placeholder="https://script.google.com/macros/s/…/exec"
-          autocomplete="off"
-          inputmode="url"
-          aria-required="true"
-        />
-        <p style="font-size:0.75rem;color:#6b7280;margin-top:6px;">
-          URL fournie par l'administrateur. Permet la synchronisation avec Google Sheets.
-        </p>
+        <input type="url" id="config-url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" inputmode="url" aria-required="true" />
       </div>
     </div>
 
-    <button id="btn-save-config" class="btn btn--primary" aria-label="Enregistrer la configuration">
-      ✅ Enregistrer et démarrer
-    </button>
+    <button id="btn-save-config" class="btn btn--primary">✅ Enregistrer et démarrer</button>
   </main>
 
-  <!-- ═══════════════════════════════════════════════════
-       VUE 1 — Liste des interventions
-  ════════════════════════════════════════════════════ -->
-  <main id="view-list" class="view" role="main" aria-label="Liste des interventions">
+  <!-- VUE 1 — Liste des Dossiers (Master) -->
+  <main id="view-list" class="view" role="main" aria-label="Liste des dossiers">
     <div class="list-header">
-      <h2>Mes interventions</h2>
+      <h2>Mes Dossiers</h2>
       <button id="btn-refresh" class="btn-refresh" aria-label="Actualiser depuis Google Sheets">
         🔄 Actualiser
       </button>
     </div>
 
-    <!-- Conteneur des cards -->
-    <div id="intervention-list" role="list" aria-label="Interventions">
-      <!-- Généré dynamiquement par app.js -->
+    <!-- Barre de recherche -->
+    <div style="margin-bottom: 12px;">
+      <input type="text" id="search-input" placeholder="🔍 Rechercher par client, Case No, incident..." style="width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px;" />
     </div>
+
+    <!-- Conteneur des cartes dossiers -->
+    <div id="intervention-list" role="list"></div>
 
     <!-- État vide -->
     <div id="list-empty" style="display:none;" aria-live="polite">
       <div class="empty-icon" aria-hidden="true">📋</div>
-      <p class="empty-title">Aucune intervention</p>
-      <p class="empty-subtitle">
-        Appuyez sur <strong>Actualiser</strong> pour récupérer vos interventions<br/>
-        depuis Google Sheets, ou créez-en une manuellement.
-      </p>
+      <p class="empty-title">Aucun dossier trouvé</p>
+      <p class="empty-subtitle">Appuyez sur <strong>Actualiser</strong> pour récupérer vos données.</p>
     </div>
 
-    <!-- FAB — Nouvelle intervention -->
-    <button id="btn-new" class="fab" aria-label="Nouvelle intervention" title="Nouvelle intervention">
-      +
-    </button>
+    <button id="btn-new" class="fab" aria-label="Nouvelle intervention" title="Nouvelle intervention">+</button>
   </main>
 
-  <!-- ═══════════════════════════════════════════════════
-       VUE 2 — Détail / Formulaire intervention
-  ════════════════════════════════════════════════════ -->
-  <main id="view-detail" class="view" role="main" aria-label="Détail de l'intervention">
+  <!-- VUE 1.5 — Vue intermédiaire : Liste des interventions d'un Dossier (Detail Dossier) -->
+  <main id="view-case-detail" class="view" role="main" aria-label="Interventions du dossier">
+    <nav class="detail-nav">
+      <button id="btn-back-to-cases" class="btn-back">‹ Liste des dossiers</button>
+      <span class="detail-nav-title" id="case-detail-title">Dossier</span>
+    </nav>
 
-    <!-- Barre de navigation interne -->
-    <nav class="detail-nav" aria-label="Navigation détail">
-      <button id="btn-back" class="btn-back" aria-label="Retour à la liste">
-        ‹ Retour
-      </button>
-      <span class="detail-nav-title" aria-hidden="true">Rapport d'intervention</span>
+    <div class="detail-content" style="padding-top: 12px;">
+      <div id="case-info-header" style="background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+        <!-- Injecté dynamiquement -->
+      </div>
+
+      <h3 style="font-size: 15px; font-weight: bold; margin-bottom: 10px; color: #374151;">Rapports d'intervention liés :</h3>
+      <div id="case-interventions-container" style="display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </main>
+
+  <!-- VUE 2 — Formulaire / Édition intervention -->
+  <main id="view-detail" class="view" role="main" aria-label="Détail de l'intervention">
+    <nav class="detail-nav">
+      <button id="btn-back" class="btn-back">‹ Retour au dossier</button>
+      <span class="detail-nav-title">Rapport d'intervention</span>
     </nav>
 
     <div class="detail-content">
-
-      <!-- ── Section info (read-only) ── -->
-      <section class="section-header-info" aria-label="Informations intervention">
-        <div class="info-row">
-          <span class="info-label">Client</span>
-          <span class="info-value" id="detail-client" aria-label="Nom du client">—</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Case No</span>
-          <span class="info-value" id="detail-case-no" aria-label="Numéro de dossier">—</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">N° Incident</span>
-          <span class="info-value" id="detail-incident-no" aria-label="Numéro d'incident">—</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Produit</span>
-          <span class="info-value" id="detail-product" aria-label="Nom du produit">—</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">N° Série</span>
-          <span class="info-value" id="detail-serial" aria-label="Numéro de série">—</span>
-        </div>
+      <section class="section-header-info">
+        <div class="info-row"><span class="info-label">Client</span><span class="info-value" id="detail-client">—</span></div>
+        <div class="info-row"><span class="info-label">Case No</span><span class="info-value" id="detail-case-no">—</span></div>
+        <div class="info-row"><span class="info-label">N° Incident</span><span class="info-value" id="detail-incident-no">—</span></div>
+        <div class="info-row"><span class="info-label">Produit</span><span class="info-value" id="detail-product">—</span></div>
+        <div class="info-row"><span class="info-label">N° Série</span><span class="info-value" id="detail-serial">—</span></div>
       </section>
 
-      <!-- ── Défaut signalé ── -->
-      <div class="defect-section" aria-label="Défaut signalé">
+      <div class="defect-section">
         <div class="defect-label">⚠️ Défaut signalé</div>
         <div class="defect-text" id="detail-defect">—</div>
       </div>
 
-      <!-- ── Rapport ── -->
-      <section class="section-rapport" aria-label="Rapport d'intervention">
+      <section class="section-rapport">
         <h2>📝 Rapport</h2>
-
-        <!-- Statut avec Scheduled ajouté -->
         <div class="form-group">
           <label for="detail-status">Statut de l'intervention</label>
           <select id="detail-status" aria-required="true">
@@ -182,7 +140,6 @@
           </select>
         </div>
 
-        <!-- Dates & heures -->
         <div class="row-2col">
           <div class="form-group">
             <label for="detail-date-debut">Date de début</label>
@@ -199,77 +156,48 @@
           <input type="time" id="detail-heure-fin" placeholder="HH:MM" />
         </div>
 
-        <!-- TTR Deviation Code -->
         <div class="form-group" id="ttr-container" style="display:none;">
           <label for="detail-ttr">TTR Deviation Code</label>
-          <select id="detail-ttr" aria-required="true">
+          <select id="detail-ttr">
             <option value="">— Sélectionner —</option>
-            <!-- Généré dynamiquement par app.js -->
           </select>
         </div>
       </section>
 
-      <!-- ── Pièces détachées ── -->
-      <section class="section-pieces" aria-label="Pièces détachées">
+      <section class="section-pieces">
         <h2>🔧 Pièces détachées</h2>
-        <div id="pieces-container">
-          <!-- Généré dynamiquement par app.js -->
-        </div>
+        <div id="pieces-container"></div>
       </section>
 
-      <!-- ── Travaux effectués ── -->
-      <section class="section-travaux" aria-label="Travaux effectués">
+      <section class="section-travaux">
         <h2>✅ Travaux effectués</h2>
         <div class="form-group">
-          <label for="detail-travaux">Description des travaux</label>
-          <textarea
-            id="detail-travaux"
-            placeholder="Décrivez les travaux réalisés, les tests effectués, les observations…"
-            aria-required="true"
-            rows="6"
-          ></textarea>
+          <textarea id="detail-travaux" placeholder="Description des travaux réalisés..." rows="6"></textarea>
         </div>
       </section>
 
-      <!-- ── Pièces jointes / Photos ── -->
-      <section class="section-attachments" aria-label="Pièces jointes">
+      <section class="section-attachments">
         <h2>📎 Pièces jointes</h2>
         <div class="form-group">
-          <label for="file-input" class="btn btn--secondary" style="display: inline-block; text-align: center; cursor: pointer; padding: 10px 16px; background: #e0e0e0; border-radius: 6px; font-weight: bold; color: #333;">
-            📁 Choisir une photo de la bibliothèque
+          <label for="file-input" class="btn btn--secondary" style="display: inline-block; padding: 10px 16px; background: #e0e0e0; border-radius: 6px; font-weight: bold; cursor: pointer;">
+            📁 Choisir une photo
           </label>
           <input type="file" id="file-input" accept="image/*" style="display: none;" />
         </div>
-        <div id="attachments-preview" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
-          <!-- Aperçu des photos sélectionnées -->
-        </div>
+        <div id="attachments-preview" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;"></div>
       </section>
 
-      <!-- ── Indicateur de sync ── -->
-      <div id="sync-status" class="sync-status sync-status--pending" aria-live="polite">
-        ⏳ Enregistré localement — en attente de sync
-      </div>
-
-      <!-- Espace pour le footer fixe -->
-      <div style="height: 16px;" aria-hidden="true"></div>
-
-    </div><!-- /detail-content -->
-
-    <!-- Footer sticky avec bouton save -->
-    <div class="detail-footer" role="toolbar" aria-label="Actions">
-      <button id="btn-save" class="btn btn--save" aria-label="Enregistrer et synchroniser l'intervention">
-        💾 Enregistrer &amp; Synchroniser
-      </button>
+      <div id="sync-status" class="sync-status sync-status--pending">⏳ Enregistré localement</div>
+      <div style="height: 16px;"></div>
     </div>
 
-  </main><!-- /view-detail -->
+    <div class="detail-footer">
+      <button id="btn-save" class="btn btn--save">💾 Enregistrer &amp; Synchroniser</button>
+    </div>
+  </main>
 
-  <!-- ═══════════════════════════════════════════════════
-       SCRIPTS
-  ════════════════════════════════════════════════════ -->
   <script src="./js/db.js"></script>
   <script src="./js/sync.js"></script>
   <script src="./js/app.js"></script>
-
 </body>
 </html>
