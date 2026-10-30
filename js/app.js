@@ -1,12 +1,8 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec 3 vues :
- *   0 - Configuration (premier lancement)
- *   1 - Liste des interventions (groupées par Case No)
- *   2 - Détail / Formulaire d'une intervention
+ * Navigation en 2 niveaux de dossiers + Recherche
  */
 
-// ─── TTR Deviation Codes ──────────────────────────────────────────────────────
 const TTR_CODES = [
   'CU – Incorrect fault description',
   'EQ – Frame failure',
@@ -18,22 +14,19 @@ const TTR_CODES = [
   'QA – Qulaity / design problem'
 ];
 
-// ─── État global ──────────────────────────────────────────────────────────────
 const AppState = {
-  currentView: null,         // 'config' | 'list' | 'detail'
+  currentView: null,         // 'config' | 'list' | 'case-detail' | 'detail'
   currentIntervention: null, // Intervention en cours d'édition
-  technicien: null,          // Identifiant technicien courant
+  currentCaseGroup: null,    // Dossier en cours de consultation
+  allInterventions: [],      // Stockage local brute
+  technicien: null,
   isOnline: navigator.onLine
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Retourne la date du jour au format YYYY-MM-DD */
 function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
-/** Convertit une date YYYY-MM-DD en JJ-MM-AAAA */
 function formatDateToJJMMYYYY(isoDateStr) {
   if (!isoDateStr) return '';
   if (isoDateStr.includes('-') && isoDateStr.split('-')[0].length === 4) {
@@ -43,12 +36,10 @@ function formatDateToJJMMYYYY(isoDateStr) {
   return isoDateStr;
 }
 
-/** Extrait le préfixe avant @ d'un email */
 function extractTechnicien(email) {
   return email ? email.split('@')[0] : '';
 }
 
-/** Affiche un toast (notification courte) */
 function showToast(message, type = 'info', duration = 3000) {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();
@@ -66,16 +57,12 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/** Formate une date ISO en format lisible */
 function formatDate(isoStr) {
   if (!isoStr) return '—';
   const d = new Date(isoStr);
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-// ─── Navigation ───────────────────────────────────────────────────────────────
-
-/** Affiche une vue et cache les autres */
 function showView(viewName) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const target = document.getElementById(`view-${viewName}`);
@@ -87,16 +74,10 @@ function showView(viewName) {
 
 async function initConfigView() {
   showView('config');
-
   const savedEmail = await JHT_DB.getConfig('email');
   const savedUrl = await JHT_DB.getConfig('appsScriptUrl');
-
-  if (savedEmail) {
-    document.getElementById('config-email').value = savedEmail;
-  }
-  if (savedUrl) {
-    document.getElementById('config-url').value = savedUrl;
-  }
+  if (savedEmail) document.getElementById('config-email').value = savedEmail;
+  if (savedUrl) document.getElementById('config-url').value = savedUrl;
 }
 
 async function saveConfig() {
@@ -107,33 +88,29 @@ async function saveConfig() {
     showToast('Veuillez saisir un email valide', 'error');
     return;
   }
-
   if (!url) {
     showToast('Veuillez saisir l\'URL Apps Script', 'error');
     return;
   }
 
   const technicien = extractTechnicien(email);
-
   await JHT_DB.saveConfig('email', email);
   await JHT_DB.saveConfig('technicien', technicien);
   await JHT_DB.saveConfig('appsScriptUrl', url);
 
   AppState.technicien = technicien;
   updateHeader();
-
   showToast(`Configuration sauvegardée — Bonjour ${technicien} !`, 'success');
   await initListView();
 }
 
-// ─── Vue 1 — Liste des interventions (Regroupées par Case No) ─────────────────
+// ─── Vue 1 — Liste des dossiers (Master) ──────────────────────────────────────
 
 async function initListView() {
   showView('list');
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par numéro de dossier (Case No) */
 function groupInterventionsByCase(interventions) {
   const grouped = {};
 
@@ -144,8 +121,12 @@ function groupInterventionsByCase(interventions) {
         caseNo: caseNo,
         clientName: interv.clientName || interv.nomClient || 'Client inconnu',
         productName: interv.productName || interv.nomProduit || 'Produit non spécifié',
+        hasFurtherAction: false,
         interventions: []
       };
+    }
+    if (interv.status === 'Further Action') {
+      grouped[caseNo].hasFurtherAction = true;
     }
     grouped[caseNo].interventions.push(interv);
   });
@@ -156,12 +137,25 @@ function groupInterventionsByCase(interventions) {
 async function renderInterventionList() {
   const listContainer = document.getElementById('intervention-list');
   const emptyState = document.getElementById('list-empty');
+  const searchVal = document.getElementById('search-input')?.value.toLowerCase().trim() || '';
+
   listContainer.innerHTML = '<div class="loading-indicator">Chargement…</div>';
 
   try {
-    const interventions = await JHT_DB.getAllInterventions();
+    AppState.allInterventions = await JHT_DB.getAllInterventions();
 
-    if (interventions.length === 0) {
+    // Filtre de recherche
+    let filtered = AppState.allInterventions;
+    if (searchVal) {
+      filtered = filtered.filter(i => 
+        (i.caseNo && i.caseNo.toLowerCase().includes(searchVal)) ||
+        (i.clientName && i.clientName.toLowerCase().includes(searchVal)) ||
+        (i.nomClient && i.nomClient.toLowerCase().includes(searchVal)) ||
+        (i.incidentNo && i.incidentNo.toLowerCase().includes(searchVal))
+      );
+    }
+
+    if (filtered.length === 0) {
       listContainer.innerHTML = '';
       emptyState.style.display = 'block';
       return;
@@ -170,12 +164,11 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    // Regroupement par Case No
-    const groupedData = groupInterventionsByCase(interventions);
+    const groupedData = groupInterventionsByCase(filtered);
 
     groupedData.forEach((group) => {
-      const caseCard = createCaseCard(group);
-      listContainer.appendChild(caseCard);
+      const card = createCaseSummaryCard(group);
+      listContainer.appendChild(card);
     });
   } catch (error) {
     listContainer.innerHTML = '<div class="error-message">Erreur de chargement</div>';
@@ -183,36 +176,81 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de dossier (Case No) */
-function createCaseCard(group) {
+/** Crée une carte de dossier épurée (SANS la liste des rapports intégrée) */
+function createCaseSummaryCard(group) {
   const card = document.createElement('div');
-  card.className = 'case-group-card';
+  card.className = 'case-summary-card';
   card.style.cssText = `
     background: #ffffff;
-    border: 1px solid #e0e0e0;
+    border: 1px solid ${group.hasFurtherAction ? '#f59e0b' : '#e5e7eb'};
+    border-left: 5px solid ${group.hasFurtherAction ? '#f59e0b' : '#2980b9'};
     border-radius: 10px;
     padding: 14px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    margin-bottom: 12px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.04);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
   `;
 
-  // En-tête du groupe de dossier
-  let htmlContent = `
-    <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
+  const totalInterv = group.interventions.length;
+  const furtherBadge = group.hasFurtherAction 
+    ? `<span style="background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid #fde68a;">⚠️ Action requise</span>`
+    : '';
+
+  card.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
-        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">Dossier Case No</span>
-        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">${escapeHtml(group.caseNo)}</h3>
-        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)} | 📦 ${escapeHtml(group.productName)}</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="font-size: 16px; color: #111827; margin: 0; font-weight: bold;">📁 Dossier ${escapeHtml(group.caseNo)}</h3>
+          ${furtherBadge}
+        </div>
+        <div style="font-size: 13px; color: #4b5563; margin-top: 4px;">👤 Client : <strong>${escapeHtml(group.clientName)}</strong></div>
+        <div style="font-size: 13px; color: #6b7280; margin-top: 2px;">📦 Produit : ${escapeHtml(group.productName)}</div>
       </div>
-      <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
-        ${group.interventions.length} intervention(s)
-      </span>
+      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+        <span style="background: #eef2ff; color: #4338ca; padding: 4px 10px; border-radius: 16px; font-size: 12px; font-weight: bold;">
+          ${totalInterv} rapport(s)
+        </span>
+        <span style="color: #9ca3af; font-size: 18px; font-weight: bold;">›</span>
+      </div>
     </div>
-    <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments pour chaque intervention du dossier
-  group.interventions.forEach((interv) => {
+  card.addEventListener('click', () => openCaseDetailView(group));
+  return card;
+}
+
+// ─── Vue 1.5 — Vue Détail Dossier (Sous-liste d'interventions) ───────────────
+
+function openCaseDetailView(group) {
+  AppState.currentCaseGroup = group;
+
+  const headerContainer = document.getElementById('case-info-header');
+  const itemsContainer = document.getElementById('case-interventions-container');
+  document.getElementById('case-detail-title').textContent = `Dossier ${group.caseNo}`;
+
+  headerContainer.innerHTML = `
+    <h2 style="font-size: 17px; margin: 0 0 6px 0; color: #111827;">📁 Case No : ${escapeHtml(group.caseNo)}</h2>
+    <div style="font-size: 14px; color: #374151;"><strong>Client :</strong> ${escapeHtml(group.clientName)}</div>
+    <div style="font-size: 14px; color: #374151; margin-top: 2px;"><strong>Produit :</strong> ${escapeHtml(group.productName)}</div>
+  `;
+
+  itemsContainer.innerHTML = '';
+
+  group.interventions.forEach(interv => {
+    const card = document.createElement('div');
+    card.style.cssText = `
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    `;
+
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
       : interv.status === 'Further Action' ? 'status--further'
@@ -221,84 +259,26 @@ function createCaseCard(group) {
 
     const dateStr = interv.dateDebut ? formatDate(interv.dateDebut) : formatDate(interv.createdAt);
 
-    htmlContent += `
-      <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
-        <div>
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 2px;">
-            Incident : ${escapeHtml(interv.incidentNo || '—')} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
-          </div>
-          <div>
-            <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}" style="font-size: 14px;">${syncIcon}</span>
-          <span style="color: #c0392b; font-weight: bold; font-size: 16px;">›</span>
-        </div>
+    card.innerHTML = `
+      <div>
+        <div style="font-size: 14px; font-weight: bold; color: #1f2937;">Incident : ${escapeHtml(interv.incidentNo || '—')}</div>
+        <div style="font-size: 12px; color: #6b7280; margin: 3px 0 6px 0;">Date : ${dateStr}</div>
+        <span class="status-badge ${statusClass}">${escapeHtml(interv.status || 'In Process')}</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span title="${interv.synced ? 'Synchronisé' : 'En attente'}" style="font-size: 16px;">${syncIcon}</span>
+        <span style="color: #c0392b; font-weight: bold; font-size: 18px;">›</span>
       </div>
     `;
+
+    card.addEventListener('click', () => openInterventionDetail(interv.id));
+    itemsContainer.appendChild(card);
   });
 
-  htmlContent += `</div>`;
-  card.innerHTML = htmlContent;
-
-  // Ajout des écouteurs de clics sur chaque sous-élément d'intervention
-  card.querySelectorAll('.sub-intervention-item').forEach(item => {
-    const intervId = item.getAttribute('data-id');
-    item.addEventListener('click', () => openInterventionDetail(intervId));
-    item.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') openInterventionDetail(intervId);
-    });
-  });
-
-  return card;
+  showView('case-detail');
 }
 
-/** Échapper le HTML pour éviter les XSS */
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Purge le stockage local et réactualise proprement depuis Google Sheets */
-async function refreshFromSheets() {
-  const btn = document.getElementById('btn-refresh');
-  btn.disabled = true;
-  btn.textContent = '⏳ Nettoyage & Sync…';
-
-  try {
-    if (!AppState.technicien) {
-      AppState.technicien = await JHT_DB.getConfig('technicien');
-    }
-
-    const allLocal = await JHT_DB.getAllInterventions();
-    for (const interv of allLocal) {
-      await JHT_DB.deleteIntervention(interv.id);
-    }
-
-    const result = await JHT_SYNC.fetchInterventions(AppState.technicien);
-    if (result.success) {
-      showToast('Liste réinitialisée et à jour !', 'success');
-      await renderInterventionList();
-    } else if (result.offline) {
-      showToast('Pas de connexion réseau', 'warning');
-    } else {
-      showToast(result.message, 'error');
-    }
-  } catch (err) {
-    showToast('Erreur lors de l\'actualisation', 'error');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🔄 Actualiser';
-  }
-}
-
-// ─── Vue 2 — Détail / Formulaire ──────────────────────────────────────────────
+// ─── Vue 2 — Formulaire / Édition ─────────────────────────────────────────────
 
 async function openInterventionDetail(id) {
   const intervention = await JHT_DB.getIntervention(id);
@@ -363,12 +343,10 @@ async function renderDetailView(interv) {
   });
 
   updateTtrVisibility();
-
   renderPiecesSection(interv.pieces || []);
   document.getElementById('detail-travaux').value = interv.travauxEffectues || interv.travaux || '';
   setupFileAttachmentHandler(interv);
   updateSyncIndicator(interv.synced);
-  
   setupFormValidationAndClock();
 }
 
@@ -390,7 +368,6 @@ function updateTtrVisibility() {
 function setupFileAttachmentHandler(interv) {
   const fileInput = document.getElementById('file-input');
   const previewContainer = document.getElementById('attachments-preview');
-  
   if (!interv.attachments) interv.attachments = [];
 
   renderPreviews();
@@ -430,7 +407,6 @@ function setupFileAttachmentHandler(interv) {
 
 function renderPiecesSection(pieces) {
   const container = document.getElementById('pieces-container');
-
   if (!pieces || pieces.length === 0) {
     container.innerHTML = '<p class="no-pieces">Aucune pièce associée à cette intervention</p>';
     return;
@@ -456,7 +432,6 @@ function renderPiecesSection(pieces) {
           max="${piece.qtyShipped || 99}"
           value="${piece.qtyUsed ?? 0}"
           data-piece-index="${index}"
-          aria-label="Quantité utilisée pour ${escapeHtml(piece.ref || 'pièce')}"
         />
       </div>
     `;
@@ -544,9 +519,7 @@ function setupFormValidationAndClock() {
       const now = new Date();
       const hours = String(now.getHours()).padStart(2, '0');
       const minutes = String(now.getMinutes()).padStart(2, '0');
-      
       input.value = `${hours}:${minutes}`;
-
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
       validateForm();
@@ -554,9 +527,7 @@ function setupFormValidationAndClock() {
 
     if (parentContainer) {
       parentContainer.addEventListener('click', (e) => {
-        if (e.target !== input) {
-          setNowTime();
-        }
+        if (e.target !== input) setNowTime();
       });
     }
 
@@ -579,16 +550,12 @@ async function saveAndSync() {
     }
 
     interv.status = document.getElementById('detail-status').value;
-    
     const rawDate = document.getElementById('detail-date-debut').value;
     interv.dateDebut = formatDateToJJMMYYYY(rawDate);
-    
     interv.heureDebut = document.getElementById('detail-heure-debut').value;
     
     const heureFinEl = document.getElementById('detail-heure-fin');
-    if (heureFinEl) {
-      interv.heureFin = heureFinEl.value;
-    }
+    if (heureFinEl) interv.heureFin = heureFinEl.value;
     
     if (interv.status === 'Further Action') {
       interv.ttrCode = document.getElementById('detail-ttr').value;
@@ -633,10 +600,6 @@ async function saveAndSync() {
 
       } else if (syncResult.offline) {
         showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
-        if ('serviceWorker' in navigator && 'SyncManager' in window) {
-          const sw = await navigator.serviceWorker.ready;
-          await sw.sync.register('jht-sync-interventions').catch(() => {});
-        }
       } else {
         showToast(`Sync échouée : ${syncResult.message}`, 'error');
       }
@@ -665,9 +628,7 @@ function updateHeader() {
 function updateOnlineStatus() {
   AppState.isOnline = navigator.onLine;
   const banner = document.getElementById('offline-banner');
-  if (banner) {
-    banner.style.display = AppState.isOnline ? 'none' : 'flex';
-  }
+  if (banner) banner.style.display = AppState.isOnline ? 'none' : 'flex';
 
   if (AppState.isOnline) {
     JHT_SYNC.pendingSync().then((results) => {
@@ -692,36 +653,33 @@ async function init() {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
 
-  window.addEventListener('sync-complete', (e) => {
-    if (e.detail && e.detail.sent > 0) {
-      showToast(`${e.detail.sent} sync(s) effectuée(s)`, 'success');
-      renderInterventionList().catch(() => {});
+  document.getElementById('btn-save-config').addEventListener('click', saveConfig);
+  document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
+  
+  // Navigation de retour intelligente
+  document.getElementById('btn-back-to-cases').addEventListener('click', () => showView('list'));
+  document.getElementById('btn-back').addEventListener('click', () => {
+    if (AppState.currentCaseGroup) {
+      showView('case-detail');
+    } else {
+      showView('list');
     }
   });
 
-  document.getElementById('btn-save-config').addEventListener('click', saveConfig);
-  document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
-  document.getElementById('btn-back').addEventListener('click', () => initListView());
   document.getElementById('btn-save').addEventListener('click', saveAndSync);
   document.getElementById('btn-new').addEventListener('click', openNewIntervention);
   document.getElementById('btn-settings').addEventListener('click', initConfigView);
 
-  if ('serviceWorker' in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.register('./service-worker.js');
-      console.log('[APP] Service Worker enregistré :', registration.scope);
-    } catch (err) {
-      console.warn('[APP] Échec enregistrement SW :', err);
-    }
+  // Recherche en temps réel
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => renderInterventionList());
   }
 
   if (!email) {
     await initConfigView();
   } else {
     await initListView();
-    if (AppState.isOnline) {
-      JHT_SYNC.pendingSync().catch(() => {});
-    }
   }
 }
 
