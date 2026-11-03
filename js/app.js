@@ -184,7 +184,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de client avec les détails des interventions */
+/** Crée une carte parente pour un groupe de client avec l'ordre spécifique des détails */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -197,7 +197,7 @@ function createClientCard(group) {
     box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   `;
 
-  // En-tête du groupe basé sur le Client[cite: 5]
+  // En-tête du groupe : Nom du Client[cite: 5]
   let htmlContent = `
     <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
@@ -211,7 +211,7 @@ function createClientCard(group) {
     <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments intégrant le Case No et l'Incident[cite: 5]
+  // Génération des sous-éléments dans l'ordre vertical exact : Incident -> Produit -> Numéro de Série
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
@@ -220,19 +220,30 @@ function createClientCard(group) {
       : 'status--inprocess';
 
     const dateStr = formatDate(interv.dateDebut || interv.createdAt);
-    const caseNo = interv.caseNo || '—';
     const incident = interv.incidentNo || '—';
     const produit = interv.productName || interv.nomProduit || '—';
+    const serie = interv.serialNo || interv.serieConsole || '—';
+    const caseNo = interv.caseNo || '—';
 
     htmlContent += `
       <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
         <div style="flex: 1;">
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 3px;">
-            📁 Case No : ${escapeHtml(caseNo)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
+          
+          <!-- 1. Incident -->
+          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 4px;">
+            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 11px;">(Case: ${escapeHtml(caseNo)})</span>
           </div>
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 2px;">
-            📌 Incident : ${escapeHtml(incident)} | 📦 Produit : <strong>${escapeHtml(produit)}</strong>
+          
+          <!-- 2. Nom du produit -->
+          <div style="font-size: 12px; color: #4b5563; margin-bottom: 3px;">
+            📦 Produit : <strong>${escapeHtml(produit)}</strong>
           </div>
+          
+          <!-- 3. Numéro de série -->
+          <div style="font-size: 12px; color: #4b5563; margin-bottom: 6px;">
+            🔢 N° de Série : <code>${escapeHtml(serie)}</code> (${dateStr})
+          </div>
+
           <div>
             <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
           </div>
