@@ -184,7 +184,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de client avec l'ordre spécifique des détails */
+/** Crée une carte parente pour un groupe de client avec les détails des interventions */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -197,7 +197,7 @@ function createClientCard(group) {
     box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   `;
 
-  // En-tête du groupe : Nom du Client[cite: 5]
+  // En-tête du groupe basé sur le Client[cite: 5]
   let htmlContent = `
     <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
@@ -211,7 +211,7 @@ function createClientCard(group) {
     <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments dans l'ordre vertical exact : Incident -> Produit -> Numéro de Série
+  // Génération des sous-éléments intégrant le Case No et l'Incident[cite: 5]
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
@@ -220,30 +220,19 @@ function createClientCard(group) {
       : 'status--inprocess';
 
     const dateStr = formatDate(interv.dateDebut || interv.createdAt);
+    const caseNo = interv.caseNo || '—';
     const incident = interv.incidentNo || '—';
     const produit = interv.productName || interv.nomProduit || '—';
-    const serie = interv.serialNo || interv.serieConsole || '—';
-    const caseNo = interv.caseNo || '—';
 
     htmlContent += `
       <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
         <div style="flex: 1;">
-          
-          <!-- 1. Incident -->
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 4px;">
-            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 11px;">(Case: ${escapeHtml(caseNo)})</span>
+          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 3px;">
+            📁 Case No : ${escapeHtml(caseNo)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
           </div>
-          
-          <!-- 2. Nom du produit -->
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 3px;">
-            📦 Produit : <strong>${escapeHtml(produit)}</strong>
+          <div style="font-size: 12px; color: #4b5563; margin-bottom: 2px;">
+            📌 Incident : ${escapeHtml(incident)} | 📦 Produit : <strong>${escapeHtml(produit)}</strong>
           </div>
-          
-          <!-- 3. Numéro de série -->
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 6px;">
-            🔢 N° de Série : <code>${escapeHtml(serie)}</code> (${dateStr})
-          </div>
-
           <div>
             <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
           </div>
@@ -589,4 +578,157 @@ async function saveAndSync() {
   btn.textContent = '⏳ Enregistrement…';
 
   try {
-    const interv = AppState.currentIntervention
+    const interv = AppState.currentIntervention;
+    if (!interv) {
+      showToast('Aucune intervention en cours', 'error');
+      return;
+    }
+
+    interv.status = document.getElementById('detail-status').value;
+    
+    const rawDate = document.getElementById('detail-date-debut').value;
+    interv.dateDebut = formatDateToJJMMYYYY(rawDate);
+    
+    interv.heureDebut = document.getElementById('detail-heure-debut').value;
+    
+    const heureFinEl = document.getElementById('detail-heure-fin');
+    if (heureFinEl) {
+      interv.heureFin = heureFinEl.value;
+    }
+    
+    if (interv.status === 'Further Action') {
+      interv.ttrCode = document.getElementById('detail-ttr').value;
+    } else {
+      interv.ttrCode = '';
+    }
+
+    interv.travauxEffectues = document.getElementById('detail-travaux').value;
+    interv.synced = false;
+
+    if (!interv.technicien) {
+      interv.technicien = AppState.technicien || await JHT_DB.getConfig('technicien');
+    }
+
+    document.querySelectorAll('.piece-qty-input').forEach((input) => {
+      const idx = parseInt(input.dataset.pieceIndex, 10);
+      if (interv.pieces && interv.pieces[idx]) {
+        interv.pieces[idx].qtyUsed = parseInt(input.value, 10) || 0;
+      }
+    });
+
+    const id = await JHT_DB.saveIntervention(interv);
+    AppState.currentIntervention.id = id;
+
+    showToast('Enregistré localement', 'info', 1500);
+    updateSyncIndicator(false);
+
+    if (AppState.isOnline) {
+      btn.textContent = '📡 Synchronisation…';
+      const syncResult = await JHT_SYNC.syncToSheets(AppState.currentIntervention);
+
+      if (syncResult.success) {
+        AppState.currentIntervention.synced = true;
+        updateSyncIndicator(true);
+        showToast('Synchronisé avec Google Sheets !', 'success');
+
+        await JHT_DB.deleteIntervention(AppState.currentIntervention.id);
+
+        setTimeout(() => {
+          initListView();
+        }, 1000);
+
+      } else if (syncResult.offline) {
+        showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
+        if ('serviceWorker' in navigator && 'SyncManager' in window) {
+          const sw = await navigator.serviceWorker.ready;
+          await sw.sync.register('jht-sync-interventions').catch(() => {});
+        }
+      } else {
+        showToast(`Sync échouée : ${syncResult.message}`, 'error');
+      }
+    } else {
+      showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
+    }
+
+    renderInterventionList().catch(() => {});
+
+  } catch (error) {
+    console.error('[APP] Erreur saveAndSync :', error);
+    showToast('Erreur lors de l\'enregistrement', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 Enregistrer & Synchroniser';
+  }
+}
+
+function updateHeader() {
+  const techEl = document.getElementById('header-technicien');
+  if (techEl && AppState.technicien) {
+    techEl.textContent = AppState.technicien;
+  }
+}
+
+function updateOnlineStatus() {
+  AppState.isOnline = navigator.onLine;
+  const banner = document.getElementById('offline-banner');
+  if (banner) {
+    banner.style.display = AppState.isOnline ? 'none' : 'flex';
+  }
+
+  if (AppState.isOnline) {
+    JHT_SYNC.pendingSync().then((results) => {
+      if (results && results.sent > 0) {
+        showToast(`${results.sent} intervention(s) synchronisée(s)`, 'success');
+        renderInterventionList().catch(() => {});
+      }
+    });
+  }
+}
+
+async function init() {
+  console.log('[APP] Initialisation JHT Tech App');
+
+  const email = await JHT_DB.getConfig('email');
+  const technicien = await JHT_DB.getConfig('technicien');
+  AppState.technicien = technicien;
+
+  updateHeader();
+  updateOnlineStatus();
+
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+
+  window.addEventListener('sync-complete', (e) => {
+    if (e.detail && e.detail.sent > 0) {
+      showToast(`${e.detail.sent} sync(s) effectuée(s)`, 'success');
+      renderInterventionList().catch(() => {});
+    }
+  });
+
+  document.getElementById('btn-save-config').addEventListener('click', saveConfig);
+  document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
+  document.getElementById('btn-back').addEventListener('click', () => initListView());
+  document.getElementById('btn-save').addEventListener('click', saveAndSync);
+  document.getElementById('btn-new').addEventListener('click', openNewIntervention);
+  document.getElementById('btn-settings').addEventListener('click', initConfigView);
+
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.register('./service-worker.js');
+      console.log('[APP] Service Worker enregistré :', registration.scope);
+    } catch (err) {
+      console.warn('[APP] Échec enregistrement SW :', err);
+    }
+  }
+
+  if (!email) {
+    await initConfigView();
+  } else {
+    await initListView();
+    if (AppState.isOnline) {
+      JHT_SYNC.pendingSync().catch(() => {});
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
