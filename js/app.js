@@ -66,11 +66,10 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/** Formate une date ISO en format lisible (Corrige le bug Invalid Date) */
+/** Formate une date ISO en format lisible */
 function formatDate(isoStr) {
-  if (!isoStr || isoStr === 'Invalid Date') return '—';
+  if (!isoStr) return '—';
   const d = new Date(isoStr);
-  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
@@ -162,7 +161,7 @@ async function renderInterventionList() {
   try {
     const interventions = await JHT_DB.getAllInterventions();
 
-    if (!interventions || interventions.length === 0) {
+    if (interventions.length === 0) {
       listContainer.innerHTML = '';
       emptyState.style.display = 'block';
       return;
@@ -184,7 +183,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de dossier (Case No) avec détails d'incident */
+/** Crée une carte parente pour un groupe de dossier (Case No) */
 function createCaseCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -201,9 +200,9 @@ function createCaseCard(group) {
   let htmlContent = `
     <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
-        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CASE NO</span>
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">Dossier Case No</span>
         <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">${escapeHtml(group.caseNo)}</h3>
-        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)}</span>
+        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)} | 📦 ${escapeHtml(group.productName)}</span>
       </div>
       <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
         ${group.interventions.length} intervention(s)
@@ -212,7 +211,7 @@ function createCaseCard(group) {
     <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments : Incident, Produit et N° de Série
+  // Génération des sous-éléments pour chaque intervention du dossier
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
@@ -220,28 +219,19 @@ function createCaseCard(group) {
       : interv.status === 'Scheduled' ? 'status--scheduled'
       : 'status--inprocess';
 
-    const dateStr = formatDate(interv.dateDebut || interv.createdAt);
-    const incident = interv.incidentNo || '—';
-    const produit = interv.productName || interv.nomProduit || '—';
-    const serie = interv.serialNo || interv.serieConsole || '—';
+    const dateStr = interv.dateDebut ? formatDate(interv.dateDebut) : formatDate(interv.createdAt);
 
     htmlContent += `
       <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
-        <div style="flex: 1;">
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 3px;">
-            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
-          </div>
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 2px;">
-            📦 Produit : <strong>${escapeHtml(produit)}</strong>
-          </div>
-          <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">
-            🔢 N° de Série : <code>${escapeHtml(serie)}</code>
+        <div>
+          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 2px;">
+            Incident : ${escapeHtml(interv.incidentNo || '—')} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
           </div>
           <div>
             <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-left: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
           <span title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}" style="font-size: 14px;">${syncIcon}</span>
           <span style="color: #c0392b; font-weight: bold; font-size: 16px;">›</span>
         </div>
@@ -252,7 +242,7 @@ function createCaseCard(group) {
   htmlContent += `</div>`;
   card.innerHTML = htmlContent;
 
-  // Écouteurs de clics sur chaque sous-intervention
+  // Ajout des écouteurs de clics sur chaque sous-élément d'intervention
   card.querySelectorAll('.sub-intervention-item').forEach(item => {
     const intervId = item.getAttribute('data-id');
     item.addEventListener('click', () => openInterventionDetail(intervId));
@@ -681,7 +671,7 @@ function updateOnlineStatus() {
 
   if (AppState.isOnline) {
     JHT_SYNC.pendingSync().then((results) => {
-      if (results && results.sent > 0) {
+      if (results.sent > 0) {
         showToast(`${results.sent} intervention(s) synchronisée(s)`, 'success');
         renderInterventionList().catch(() => {});
       }
