@@ -2,7 +2,7 @@
  * app.js — Application principale JHT Tech App
  * SPA (Single Page Application) avec 3 vues :
  *   0 - Configuration (premier lancement)
- *   1 - Liste des interventions (groupées par Nom du Client)
+ *   1 - Liste des interventions (groupées par Case No)
  *   2 - Détail / Formulaire d'une intervention
  */
 
@@ -127,28 +127,28 @@ async function saveConfig() {
   await initListView();
 }
 
-// ─── Vue 1 — Liste des interventions (Regroupées par Nom du Client) ───────────
+// ─── Vue 1 — Liste des interventions (Regroupées par Case No) ─────────────────
 
 async function initListView() {
   showView('list');
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client[cite: 5] */
-function groupInterventionsByClient(interventions) {
+/** Regroupe les interventions par numéro de dossier (Case No) */
+function groupInterventionsByCase(interventions) {
   const grouped = {};
 
   interventions.forEach(interv => {
-    const clientName = interv.clientName || interv.nomClient || 'Client inconnu';
-    if (!grouped[clientName]) {
-      grouped[clientName] = {
-        clientName: clientName,
-        caseNo: interv.caseNo || 'Sans Dossier',
+    const caseNo = interv.caseNo || 'Sans Dossier';
+    if (!grouped[caseNo]) {
+      grouped[caseNo] = {
+        caseNo: caseNo,
+        clientName: interv.clientName || interv.nomClient || 'Client inconnu',
         productName: interv.productName || interv.nomProduit || 'Produit non spécifié',
         interventions: []
       };
     }
-    grouped[clientName].interventions.push(interv);
+    grouped[caseNo].interventions.push(interv);
   });
 
   return Object.values(grouped);
@@ -171,12 +171,12 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    // Regroupement par Nom du Client[cite: 5]
-    const groupedData = groupInterventionsByClient(interventions);
+    // Regroupement par Case No
+    const groupedData = groupInterventionsByCase(interventions);
 
     groupedData.forEach((group) => {
-      const clientCard = createClientCard(group);
-      listContainer.appendChild(clientCard);
+      const caseCard = createCaseCard(group);
+      listContainer.appendChild(caseCard);
     });
   } catch (error) {
     listContainer.innerHTML = '<div class="error-message">Erreur de chargement</div>';
@@ -184,8 +184,8 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de client avec l'ordre spécifique des détails */
-function createClientCard(group) {
+/** Crée une carte parente pour un groupe de dossier (Case No) avec détails d'incident */
+function createCaseCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
   card.style.cssText = `
@@ -197,12 +197,13 @@ function createClientCard(group) {
     box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   `;
 
-  // En-tête du groupe : Nom du Client[cite: 5]
+  // En-tête du groupe de dossier
   let htmlContent = `
     <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
-        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">CLIENT</span>
-        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">👤 ${escapeHtml(group.clientName)}</h3>
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CASE NO</span>
+        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">${escapeHtml(group.caseNo)}</h3>
+        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)}</span>
       </div>
       <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
         ${group.interventions.length} intervention(s)
@@ -211,7 +212,7 @@ function createClientCard(group) {
     <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments dans l'ordre vertical exact : Incident -> Produit -> Numéro de Série
+  // Génération des sous-éléments : Incident, Produit et N° de Série
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
@@ -223,27 +224,19 @@ function createClientCard(group) {
     const incident = interv.incidentNo || '—';
     const produit = interv.productName || interv.nomProduit || '—';
     const serie = interv.serialNo || interv.serieConsole || '—';
-    const caseNo = interv.caseNo || '—';
 
     htmlContent += `
       <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
         <div style="flex: 1;">
-          
-          <!-- 1. Incident -->
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 4px;">
-            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 11px;">(Case: ${escapeHtml(caseNo)})</span>
+          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 3px;">
+            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
           </div>
-          
-          <!-- 2. Nom du produit -->
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 3px;">
+          <div style="font-size: 12px; color: #4b5563; margin-bottom: 2px;">
             📦 Produit : <strong>${escapeHtml(produit)}</strong>
           </div>
-          
-          <!-- 3. Numéro de série -->
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 6px;">
-            🔢 N° de Série : <code>${escapeHtml(serie)}</code> (${dateStr})
+          <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">
+            🔢 N° de Série : <code>${escapeHtml(serie)}</code>
           </div>
-
           <div>
             <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
           </div>
