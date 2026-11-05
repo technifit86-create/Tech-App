@@ -1,9 +1,6 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec 3 vues :
- *   0 - Configuration (premier lancement)
- *   1 - Liste des interventions (groupées par Nom du Client)
- *   2 - Détail / Formulaire d'une intervention
+ * SPA (Single Page Application) avec persistance des horaires de site par client.
  */
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
@@ -67,7 +64,7 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/** Formate une date ISO en format lisible (Corrige le bug Invalid Date) */
+/** Formate une date ISO en format lisible */
 function formatDate(isoStr) {
   if (!isoStr || isoStr === 'Invalid Date') return '—';
   const d = new Date(isoStr);
@@ -77,7 +74,6 @@ function formatDate(isoStr) {
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 
-/** Affiche une vue et cache les autres */
 function showView(viewName) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const target = document.getElementById(`view-${viewName}`);
@@ -136,22 +132,26 @@ async function initListView() {
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client */
-function groupInterventionsByClient(interventions) {
+/** Regroupe les interventions par Nom du Client et charge les horaires persistés */
+async function groupInterventionsByClient(interventions) {
   const grouped = {};
 
-  interventions.forEach(interv => {
+  for (const interv of interventions) {
     const clientName = interv.clientName || interv.nomClient || 'Client inconnu';
     if (!grouped[clientName]) {
+      // Récupération des horaires enregistrés en base pour ce client
+      const savedStart = await JHT_DB.getConfig(`site_start_${clientName}`) || '';
+      const savedEnd = await JHT_DB.getConfig(`site_end_${clientName}`) || '';
+
       grouped[clientName] = {
         clientName: clientName,
         interventions: [],
-        siteStartTime: '', // Mémorisation de l'arrivée sur site
-        siteEndTime: ''    // Mémorisation du départ du site
+        siteStartTime: savedStart,
+        siteEndTime: savedEnd
       };
     }
     grouped[clientName].interventions.push(interv);
-  });
+  }
 
   return Object.values(grouped);
 }
@@ -173,7 +173,7 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    const groupedData = groupInterventionsByClient(interventions);
+    const groupedData = await groupInterventionsByClient(interventions);
 
     groupedData.forEach((group) => {
       const clientCard = createClientCard(group);
@@ -227,7 +227,7 @@ function createClientCard(group) {
   return card;
 }
 
-/** Affiche la page dédiée à un seul client avec mémorisation des heures d'arrivée/départ */
+/** Affiche la page dédiée à un seul client avec persistance instantanée des horaires et alerte rouge si fin manquante */
 function openClientDetailView(group) {
   AppState.currentClientGroup = group; 
   showView('list');
@@ -235,7 +235,6 @@ function openClientDetailView(group) {
   const listContainer = document.getElementById('intervention-list');
   listContainer.innerHTML = ''; 
 
-  // En-tête du dossier client
   const header = document.createElement('div');
   header.style.cssText = `
     margin-bottom: 16px;
@@ -256,7 +255,6 @@ function openClientDetailView(group) {
     initListView(); 
   });
 
-  // Bloc de Répartition Globale des Heures
   const timeBlockCard = document.createElement('div');
   timeBlockCard.style.cssText = `
     background: #f0fdf4;
@@ -272,11 +270,11 @@ function openClientDetailView(group) {
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
       <div>
         <label style="font-size: 11px; color: #374151; display: block;">Arrivée site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteStartTime || '08:00'}" />
+        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteStartTime || ''}" />
       </div>
       <div>
-        <label style="font-size: 11px; color: #374151; display: block;">Départ site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteEndTime || '12:00'}" />
+        <label id="label-end-time" style="font-size: 11px; color: #374151; display: block;">Départ site (cliquez pour heure actuelle)</label>
+        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteEndTime || ''}" />
       </div>
       <div style="align-self: flex-end;">
         <button id="btn-distribute-time" style="background: #16a34a; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">
@@ -289,33 +287,66 @@ function openClientDetailView(group) {
 
   const startInput = timeBlockCard.querySelector('#global-start-time');
   const endInput = timeBlockCard.querySelector('#global-end-time');
+  const labelEnd = timeBlockCard.querySelector('#label-end-time');
 
-  // Sauvegarde instantanée dans l'objet group dès qu'on modifie ou clique
-  const setNowToInput = (inputEl, isStart) => {
+  // Sécurité visuelle : Alerte en rouge si l'heure de fin est vide
+  const checkEndTimeSecurity = () => {
+    if (!endInput.value) {
+      endInput.style.borderColor = '#dc2626';
+      endInput.style.backgroundColor = '#fef2f2';
+      labelEnd.style.color = '#dc2626';
+      labelEnd.style.fontWeight = 'bold';
+    } else {
+      endInput.style.borderColor = '#d1d5db';
+      endInput.style.backgroundColor = '#ffffff';
+      labelEnd.style.color = '#374151';
+      labelEnd.style.fontWeight = 'normal';
+    }
+  };
+  checkEndTimeSecurity();
+
+  // Enregistrement persistant immédiat des horaires en base locale
+  const saveSiteTime = async (key, val) => {
+    group[key] = val;
+    await JHT_DB.saveConfig(`site_${key}_${group.clientName}`, val);
+  };
+
+  const setNowToInput = async (inputEl, isStart) => {
     const now = new Date();
     const h = String(now.getHours()).padStart(2, '0');
     const m = String(now.getMinutes()).padStart(2, '0');
     const val = `${h}:${m}`;
     inputEl.value = val;
-    if (isStart) group.siteStartTime = val;
-    else group.siteEndTime = val;
+
+    if (isStart) {
+      await saveSiteTime('siteStartTime', val);
+    } else {
+      await saveSiteTime('siteEndTime', val);
+      checkEndTimeSecurity();
+    }
   };
 
   startInput.addEventListener('click', () => setNowToInput(startInput, true));
   startInput.addEventListener('dblclick', () => setNowToInput(startInput, true));
-  startInput.addEventListener('change', () => { group.siteStartTime = startInput.value; });
+  startInput.addEventListener('change', async () => { 
+    await saveSiteTime('siteStartTime', startInput.value); 
+  });
 
   endInput.addEventListener('click', () => setNowToInput(endInput, false));
   endInput.addEventListener('dblclick', () => setNowToInput(endInput, false));
-  endInput.addEventListener('change', () => { group.siteEndTime = endInput.value; });
+  endInput.addEventListener('change', async () => { 
+    await saveSiteTime('siteEndTime', endInput.value); 
+    checkEndTimeSecurity();
+  });
 
-  // Action du bouton de répartition automatique et synchronisation simultanée
+  // Action du bouton de répartition et synchro automatique
   timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
     const startStr = startInput.value;
     const endStr = endInput.value;
 
-    group.siteStartTime = startStr;
-    group.siteEndTime = endStr;
+    await saveSiteTime('siteStartTime', startStr);
+    await saveSiteTime('siteEndTime', endStr);
+    checkEndTimeSecurity();
 
     if (!startStr || !endStr) {
       showToast('Veuillez renseigner l\'heure d\'arrivée et de départ', 'error');
@@ -332,7 +363,6 @@ function openClientDetailView(group) {
       return;
     }
 
-    // Filtrer uniquement les fiches qui ne sont PAS "In Process"
     const eligibleInterventions = group.interventions.filter(i => i.status && i.status !== 'In Process' && i.status !== 'Scheduled');
     
     if (eligibleInterventions.length === 0) {
@@ -346,7 +376,6 @@ function openClientDetailView(group) {
 
     showToast('Répartition et synchronisation en cours...', 'info');
 
-    // Attribution séquentielle des créneaux sur les fiches éligibles
     for (let i = 0; i < count; i++) {
       const interv = eligibleInterventions[i];
       const slotStartMin = startMinutes + (i * slotMinutes);
@@ -363,10 +392,8 @@ function openClientDetailView(group) {
       interv.heureFin = formatMinToTime(slotEndMin);
       interv.synced = false;
 
-      // Sauvegarde locale
       await JHT_DB.saveIntervention(interv);
 
-      // Synchronisation immédiate vers Sheets si en ligne
       if (AppState.isOnline) {
         try {
           const syncResult = await JHT_SYNC.syncToSheets(interv);
@@ -382,12 +409,10 @@ function openClientDetailView(group) {
 
     showToast('Horaires répartis et synchronisés avec succès !', 'success');
     
-    // Recharge la vue du dossier client mise à jour
     const allInterventions = await JHT_DB.getAllInterventions();
-    const updatedGroup = groupInterventionsByClient(allInterventions).find(g => g.clientName === group.clientName);
+    const updatedGroups = await groupInterventionsByClient(allInterventions);
+    const updatedGroup = updatedGroups.find(g => g.clientName === group.clientName);
     if (updatedGroup) {
-      updatedGroup.siteStartTime = group.siteStartTime;
-      updatedGroup.siteEndTime = group.siteEndTime;
       openClientDetailView(updatedGroup);
     }
   });
@@ -809,22 +834,20 @@ async function saveAndSync() {
         AppState.currentIntervention.synced = true;
         await JHT_DB.saveIntervention(AppState.currentIntervention);
 
-        setTimeout(() => {
+        setTimeout(async () => {
           if (clientName) {
-            JHT_DB.getAllInterventions().then(interventions => {
-              const grouped = groupInterventionsByClient(interventions);
-              const targetGroup = grouped.find(g => g.clientName === clientName);
-              if (targetGroup) {
-                // Conserve les horaires saisis sur le groupe si présents
-                if (AppState.currentClientGroup) {
-                  targetGroup.siteStartTime = AppState.currentClientGroup.siteStartTime;
-                  targetGroup.siteEndTime = AppState.currentClientGroup.siteEndTime;
-                }
-                openClientDetailView(targetGroup);
-              } else {
-                initListView();
+            const interventions = await JHT_DB.getAllInterventions();
+            const grouped = await groupInterventionsByClient(interventions);
+            const targetGroup = grouped.find(g => g.clientName === clientName);
+            if (targetGroup) {
+              if (AppState.currentClientGroup) {
+                targetGroup.siteStartTime = AppState.currentClientGroup.siteStartTime;
+                targetGroup.siteEndTime = AppState.currentClientGroup.siteEndTime;
               }
-            }).catch(() => initListView());
+              openClientDetailView(targetGroup);
+            } else {
+              initListView();
+            }
           } else {
             initListView();
           }
