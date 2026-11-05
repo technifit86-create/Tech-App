@@ -145,7 +145,9 @@ function groupInterventionsByClient(interventions) {
     if (!grouped[clientName]) {
       grouped[clientName] = {
         clientName: clientName,
-        interventions: []
+        interventions: [],
+        siteStartTime: '', // Mémorisation de l'arrivée sur site
+        siteEndTime: ''    // Mémorisation du départ du site
       };
     }
     grouped[clientName].interventions.push(interv);
@@ -225,7 +227,7 @@ function createClientCard(group) {
   return card;
 }
 
-/** Affiche la page dédiée à un seul client avec l'outil de répartition des heures et synchro auto */
+/** Affiche la page dédiée à un seul client avec mémorisation des heures d'arrivée/départ */
 function openClientDetailView(group) {
   AppState.currentClientGroup = group; 
   showView('list');
@@ -254,7 +256,7 @@ function openClientDetailView(group) {
     initListView(); 
   });
 
-  // Bloc de Répartition Globale des Heures avec mise à l'heure actuelle au clic/double-clic
+  // Bloc de Répartition Globale des Heures
   const timeBlockCard = document.createElement('div');
   timeBlockCard.style.cssText = `
     background: #f0fdf4;
@@ -270,11 +272,11 @@ function openClientDetailView(group) {
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
       <div>
         <label style="font-size: 11px; color: #374151; display: block;">Arrivée site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="08:00" />
+        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteStartTime || '08:00'}" />
       </div>
       <div>
         <label style="font-size: 11px; color: #374151; display: block;">Départ site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="12:00" />
+        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteEndTime || '12:00'}" />
       </div>
       <div style="align-self: flex-end;">
         <button id="btn-distribute-time" style="background: #16a34a; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">
@@ -285,26 +287,35 @@ function openClientDetailView(group) {
   `;
   listContainer.appendChild(timeBlockCard);
 
-  // Fonction helper pour assigner l'heure actuelle au champ input time
-  const setNowToInput = (inputEl) => {
-    const now = new Date();
-    const h = String(now.getHours()).padStart(2, '0');
-    const m = String(now.getMinutes()).padStart(2, '0');
-    inputEl.value = `${h}:${m}`;
-  };
-
   const startInput = timeBlockCard.querySelector('#global-start-time');
   const endInput = timeBlockCard.querySelector('#global-end-time');
 
-  startInput.addEventListener('click', () => setNowToInput(startInput));
-  startInput.addEventListener('dblclick', () => setNowToInput(startInput));
-  endInput.addEventListener('click', () => setNowToInput(endInput));
-  endInput.addEventListener('dblclick', () => setNowToInput(endInput));
+  // Sauvegarde instantanée dans l'objet group dès qu'on modifie ou clique
+  const setNowToInput = (inputEl, isStart) => {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const val = `${h}:${m}`;
+    inputEl.value = val;
+    if (isStart) group.siteStartTime = val;
+    else group.siteEndTime = val;
+  };
+
+  startInput.addEventListener('click', () => setNowToInput(startInput, true));
+  startInput.addEventListener('dblclick', () => setNowToInput(startInput, true));
+  startInput.addEventListener('change', () => { group.siteStartTime = startInput.value; });
+
+  endInput.addEventListener('click', () => setNowToInput(endInput, false));
+  endInput.addEventListener('dblclick', () => setNowToInput(endInput, false));
+  endInput.addEventListener('change', () => { group.siteEndTime = endInput.value; });
 
   // Action du bouton de répartition automatique et synchronisation simultanée
   timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
     const startStr = startInput.value;
     const endStr = endInput.value;
+
+    group.siteStartTime = startStr;
+    group.siteEndTime = endStr;
 
     if (!startStr || !endStr) {
       showToast('Veuillez renseigner l\'heure d\'arrivée et de départ', 'error');
@@ -375,6 +386,8 @@ function openClientDetailView(group) {
     const allInterventions = await JHT_DB.getAllInterventions();
     const updatedGroup = groupInterventionsByClient(allInterventions).find(g => g.clientName === group.clientName);
     if (updatedGroup) {
+      updatedGroup.siteStartTime = group.siteStartTime;
+      updatedGroup.siteEndTime = group.siteEndTime;
       openClientDetailView(updatedGroup);
     }
   });
@@ -535,7 +548,6 @@ async function renderDetailView(interv) {
   }
   document.getElementById('detail-date-debut').value = dateVal;
   
-  // Modification : Les champs d'heures individuels sont masqués visuellement mais conservent leurs valeurs pour Sheets
   const heureDebutInput = document.getElementById('detail-heure-debut');
   if (heureDebutInput) {
     heureDebutInput.value = interv.heureDebut || '';
@@ -803,6 +815,11 @@ async function saveAndSync() {
               const grouped = groupInterventionsByClient(interventions);
               const targetGroup = grouped.find(g => g.clientName === clientName);
               if (targetGroup) {
+                // Conserve les horaires saisis sur le groupe si présents
+                if (AppState.currentClientGroup) {
+                  targetGroup.siteStartTime = AppState.currentClientGroup.siteStartTime;
+                  targetGroup.siteEndTime = AppState.currentClientGroup.siteEndTime;
+                }
                 openClientDetailView(targetGroup);
               } else {
                 initListView();
