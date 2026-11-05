@@ -1,6 +1,7 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec verrouillage de navigation et validation stricte des horaires.
+ * SPA (Single Page Application) avec verrouillage de navigation, validation stricte des horaires
+ * et correction de la persistance des états.
  */
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
@@ -74,6 +75,17 @@ function showView(viewName) {
   const target = document.getElementById(`view-${viewName}`);
   if (target) target.classList.add('active');
   AppState.currentView = viewName;
+
+  const refreshBtn = document.getElementById('btn-refresh');
+  const newBtn = document.getElementById('btn-new');
+
+  if (viewName === 'list' && AppState.currentClientGroup) {
+    if (refreshBtn) refreshBtn.style.display = 'none';
+    if (newBtn) newBtn.style.display = 'none';
+  } else {
+    if (refreshBtn) refreshBtn.style.display = 'inline-block';
+    if (newBtn) newBtn.style.display = 'none';
+  }
 }
 
 // ─── Vue 0 — Configuration ────────────────────────────────────────────────────
@@ -122,8 +134,8 @@ async function saveConfig() {
 // ─── Vue 1 — Liste des interventions (Groupées par Nom du Client) ────────────
 
 async function initListView() {
-  showView('list');
   AppState.currentClientGroup = null; 
+  showView('list');
   await renderInterventionList();
 }
 
@@ -135,13 +147,14 @@ async function groupInterventionsByClient(interventions) {
     if (!grouped[clientName]) {
       const savedStart = await JHT_DB.getConfig(`site_start_${clientName}`) || '';
       const savedEnd = await JHT_DB.getConfig(`site_end_${clientName}`) || '';
+      const savedDistributed = await JHT_DB.getConfig(`site_distributed_${clientName}`) === 'true';
 
       grouped[clientName] = {
         clientName: clientName,
         interventions: [],
         siteStartTime: savedStart,
         siteEndTime: savedEnd,
-        isDistributed: Boolean(savedStart && savedEnd) // Indicateur si réparti
+        isDistributed: savedDistributed || Boolean(savedStart && savedEnd)
       };
     }
     grouped[clientName].interventions.push(interv);
@@ -214,17 +227,18 @@ function createClientCard(group) {
   card.addEventListener('click', async () => {
     group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || '';
     group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || '';
-    group.isDistributed = Boolean(group.siteStartTime && group.siteEndTime);
+    group.isDistributed = (await JHT_DB.getConfig(`site_distributed_${group.clientName}`) === 'true') || Boolean(group.siteStartTime && group.siteEndTime);
     openClientDetailView(group);
   });
 
   return card;
 }
 
-/** Affiche la page dédiée à un seul client avec verrouillage de retour si non réparti */
+/** Affiche la page dédiée à un seul client */
 async function openClientDetailView(group) {
   group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || group.siteStartTime || '';
   group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || group.siteEndTime || '';
+  group.isDistributed = (await JHT_DB.getConfig(`site_distributed_${group.clientName}`) === 'true') || group.isDistributed;
 
   AppState.currentClientGroup = group; 
   showView('list');
@@ -239,7 +253,6 @@ async function openClientDetailView(group) {
     border-bottom: 2px solid #e5e7eb;
   `;
   
-  // Le bouton retour est conditionnel : masqué/bloqué si les heures ne sont pas encore réparties
   const showBackBtn = group.isDistributed;
 
   header.innerHTML = `
@@ -293,7 +306,6 @@ async function openClientDetailView(group) {
   const labelEnd = timeBlockCard.querySelector('#label-end-time');
   const distributeBtn = timeBlockCard.querySelector('#btn-distribute-time');
 
-  // Met à jour l'état visuel et interactif du bouton "Répartir & Synchroniser" selon la présence des horaires
   const updateDistributeButtonState = () => {
     const hasStart = Boolean(startInput.value);
     const hasEnd = Boolean(endInput.value);
@@ -302,15 +314,14 @@ async function openClientDetailView(group) {
       distributeBtn.removeAttribute('disabled');
       distributeBtn.style.opacity = '1';
       distributeBtn.style.cursor = 'pointer';
-      distributeBtn.style.background = '#16a34a'; // Vert actif
+      distributeBtn.style.background = '#16a34a';
     } else {
       distributeBtn.setAttribute('disabled', 'true');
       distributeBtn.style.opacity = '0.5';
       distributeBtn.style.cursor = 'not-allowed';
-      distributeBtn.style.background = '#dc2626'; // Rouge inactif
+      distributeBtn.style.background = '#dc2626'; // Rouge inactif si incomplet
     }
 
-    // Sécurité visuelle heure de fin en rouge si manquante
     if (!hasEnd) {
       endInput.style.borderColor = '#dc2626';
       endInput.style.backgroundColor = '#fef2f2';
@@ -344,8 +355,9 @@ async function openClientDetailView(group) {
       await saveSiteTime('siteEndTime', val);
     }
 
-    // Dès qu'on interagit avec les heures, on bloque le retour en arrière tant que ce n'est pas réparti/synchronisé
     group.isDistributed = false;
+    await JHT_DB.saveConfig(`site_distributed_${group.clientName}`, 'false');
+    
     const backBtn = header.querySelector('#btn-back-to-clients');
     if (backBtn) backBtn.style.display = 'none';
 
@@ -357,6 +369,7 @@ async function openClientDetailView(group) {
   startInput.addEventListener('change', async () => { 
     await saveSiteTime('siteStartTime', startInput.value); 
     group.isDistributed = false;
+    await JHT_DB.saveConfig(`site_distributed_${group.clientName}`, 'false');
     const backBtn = header.querySelector('#btn-back-to-clients');
     if (backBtn) backBtn.style.display = 'none';
     updateDistributeButtonState();
@@ -367,6 +380,7 @@ async function openClientDetailView(group) {
   endInput.addEventListener('change', async () => { 
     await saveSiteTime('siteEndTime', endInput.value); 
     group.isDistributed = false;
+    await JHT_DB.saveConfig(`site_distributed_${group.clientName}`, 'false');
     const backBtn = header.querySelector('#btn-back-to-clients');
     if (backBtn) backBtn.style.display = 'none';
     updateDistributeButtonState();
@@ -438,8 +452,9 @@ async function openClientDetailView(group) {
       }
     }
 
-    // Marquage comme réparti et synchronisé avec succès -> déverrouille le bouton retour
     group.isDistributed = true;
+    await JHT_DB.saveConfig(`site_distributed_${group.clientName}`, 'true');
+
     showToast('Horaires répartis et synchronisés avec succès !', 'success');
     
     const allInterventions = await JHT_DB.getAllInterventions();
@@ -525,8 +540,10 @@ function escapeHtml(str) {
 
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
-  btn.disabled = true;
-  btn.textContent = '⏳ Nettoyage & Sync…';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Nettoyage & Sync…';
+  }
 
   try {
     if (!AppState.technicien) {
@@ -551,8 +568,10 @@ async function refreshFromSheets() {
     showToast('Erreur lors de l\'actualisation', 'error');
     console.error(err);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '🔄 Actualiser';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Actualiser';
+    }
   }
 }
 
@@ -566,22 +585,6 @@ async function openInterventionDetail(id) {
   }
   AppState.currentIntervention = intervention;
   await renderDetailView(intervention);
-  showView('detail');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-async function openNewIntervention() {
-  AppState.currentIntervention = {
-    id: null,
-    status: 'Scheduled',
-    dateDebut: todayISO(),
-    heureDebut: '',
-    heureFin: '',
-    pieces: [],
-    attachments: [],
-    synced: false
-  };
-  await renderDetailView(AppState.currentIntervention);
   showView('detail');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -951,7 +954,11 @@ async function init() {
   });
 
   document.getElementById('btn-save-config').addEventListener('click', saveConfig);
-  document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
+  
+  const refreshBtn = document.getElementById('btn-refresh');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', refreshFromSheets);
+  }
   
   document.getElementById('btn-back').addEventListener('click', () => {
     if (AppState.currentClientGroup) {
@@ -962,7 +969,10 @@ async function init() {
   });
 
   document.getElementById('btn-save').addEventListener('click', saveAndSync);
-  document.getElementById('btn-new').addEventListener('click', openNewIntervention);
+  
+  const newBtn = document.getElementById('btn-new');
+  if (newBtn) newBtn.style.display = 'none';
+
   document.getElementById('btn-settings').addEventListener('click', initConfigView);
 
   if ('serviceWorker' in navigator) {
