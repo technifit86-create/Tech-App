@@ -127,14 +127,14 @@ async function saveConfig() {
   await initListView();
 }
 
-// ─── Vue 1 — Liste des interventions (Regroupées par Nom du Client) ───────────
+// ─── Vue 1 — Liste des interventions (Groupées par Nom du Client) ────────────
 
 async function initListView() {
   showView('list');
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client[cite: 4] */
+/** Regroupe les interventions par Nom du Client[cite: 5] */
 function groupInterventionsByClient(interventions) {
   const grouped = {};
 
@@ -169,7 +169,7 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    // Regroupement par Nom du Client[cite: 4]
+    // Regroupement par Nom du Client[cite: 5]
     const groupedData = groupInterventionsByClient(interventions);
 
     groupedData.forEach((group) => {
@@ -182,7 +182,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de client avec détails d'incident */
+/** Crée une carte client compacte. Au clic, ouvre la vue dédiée du client[cite: 5] */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -193,23 +193,65 @@ function createClientCard(group) {
     padding: 14px;
     margin-bottom: 16px;
     box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   `;
 
-  // En-tête du groupe basé sur le Nom du Client[cite: 4]
   let htmlContent = `
-    <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
       <div>
         <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">CLIENT</span>
         <h3 style="font-size: 16px; color: #111827; margin: 2px 0 0 0;">👤 ${escapeHtml(group.clientName)}</h3>
       </div>
-      <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
-        ${group.interventions.length} intervention(s)
-      </span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="background: #f3f4f6; color: #374151; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
+          ${group.interventions.length} intervention(s)
+        </span>
+        <span style="color: #2980b9; font-weight: bold; font-size: 18px;">›</span>
+      </div>
     </div>
-    <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments : Incident, Produit et N° de Série (sans Case No)[cite: 4]
+  card.innerHTML = htmlContent;
+
+  // Clic sur la carte client pour basculer vers la vue dédiée du client[cite: 5]
+  card.addEventListener('click', () => {
+    openClientDetailView(group);
+  });
+
+  return card;
+}
+
+/** Affiche la page dédiée à un seul client et masque tous les autres[cite: 5] */
+function openClientDetailView(group) {
+  const listContainer = document.getElementById('intervention-list');
+  listContainer.innerHTML = ''; 
+
+  // En-tête avec bouton de retour et informations client[cite: 5]
+  const header = document.createElement('div');
+  header.style.cssText = `
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e5e7eb;
+  `;
+  header.innerHTML = `
+    <button id="btn-back-to-clients" style="background: none; border: none; color: #2980b9; font-size: 14px; font-weight: bold; cursor: pointer; padding: 0 0 10px 0; display: block;">
+      ← Retour à la liste des clients
+    </button>
+    <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CLIENT</span>
+    <h2 style="font-size: 20px; color: #111827; margin: 2px 0 0 0;">👤 ${escapeHtml(group.clientName)}</h2>
+    <span style="font-size: 13px; color: #6b7280;">Total : ${group.interventions.length} intervention(s)</span>
+  `;
+  listContainer.appendChild(header);
+
+  header.querySelector('#btn-back-to-clients').addEventListener('click', () => {
+    renderInterventionList();
+  });
+
+  // Liste des interventions du client sélectionné[cite: 5]
+  const subList = document.createElement('div');
+  subList.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
+
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
@@ -222,43 +264,51 @@ function createClientCard(group) {
     const produit = interv.productName || interv.nomProduit || '—';
     const serie = interv.serialNo || interv.serieConsole || '—';
 
-    htmlContent += `
-      <div class="sub-intervention-item" data-id="${interv.id}" role="button" tabindex="0" style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.2s;">
-        <div style="flex: 1;">
-          <div style="font-size: 13px; font-weight: bold; color: #1f2937; margin-bottom: 3px;">
-            📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
-          </div>
-          <div style="font-size: 12px; color: #4b5563; margin-bottom: 2px;">
-            📦 Produit : <strong>${escapeHtml(produit)}</strong>
-          </div>
-          <div style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">
-            🔢 N° de Série : <code>${escapeHtml(serie)}</code>
-          </div>
-          <div>
-            <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
-          </div>
+    const item = document.createElement('div');
+    item.className = 'sub-intervention-item';
+    item.setAttribute('data-id', interv.id);
+    item.style.cssText = `
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    `;
+
+    item.innerHTML = `
+      <div style="flex: 1;">
+        <div style="font-size: 14px; font-weight: bold; color: #1f2937; margin-bottom: 4px;">
+          📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-left: 10px;">
-          <span title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}" style="font-size: 14px;">${syncIcon}</span>
-          <span style="color: #c0392b; font-weight: bold; font-size: 16px;">›</span>
+        <div style="font-size: 13px; color: #374151; margin-bottom: 3px;">
+          📦 Produit : <strong>${escapeHtml(produit)}</strong>
+        </div>
+        <div style="font-size: 12px; color: #6b7280; margin-bottom: 6px;">
+          🔢 N° de Série : <code>${escapeHtml(serie)}</code>
+        </div>
+        <div>
+          <span class="status-badge ${statusClass}" style="font-size: 11px; padding: 2px 6px;">${escapeHtml(interv.status || 'In Process')}</span>
         </div>
       </div>
+      <div style="display: flex; align-items: center; gap: 8px; margin-left: 10px;">
+        <span title="${interv.synced ? 'Synchronisé' : 'En attente de sync'}" style="font-size: 14px;">${syncIcon}</span>
+        <span style="color: #c0392b; font-weight: bold; font-size: 18px;">›</span>
+      </div>
     `;
-  });
 
-  htmlContent += `</div>`;
-  card.innerHTML = htmlContent;
-
-  // Écouteurs de clics sur chaque sous-intervention
-  card.querySelectorAll('.sub-intervention-item').forEach(item => {
-    const intervId = item.getAttribute('data-id');
-    item.addEventListener('click', () => openInterventionDetail(intervId));
-    item.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') openInterventionDetail(intervId);
+    item.addEventListener('click', () => {
+      openInterventionDetail(interv.id);
     });
+
+    subList.appendChild(item);
   });
 
-  return card;
+  listContainer.appendChild(subList);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /** Échapper le HTML pour éviter les XSS */
@@ -271,7 +321,7 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Purge le stockage local et réactualise proprement depuis Google Sheets */
+/** Purge le stockage local et réactualise proprement depuis Google Sheets[cite: 5] */
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
   btn.disabled = true;
