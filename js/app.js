@@ -1,6 +1,6 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec persistance des horaires de site par client.
+ * SPA (Single Page Application) avec correction de la persistance des horaires et du TTR Code.
  */
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
@@ -26,12 +26,10 @@ const AppState = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Retourne la date du jour au format YYYY-MM-DD */
 function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
-/** Convertit une date YYYY-MM-DD en JJ-MM-AAAA */
 function formatDateToJJMMYYYY(isoDateStr) {
   if (!isoDateStr) return '';
   if (isoDateStr.includes('-') && isoDateStr.split('-')[0].length === 4) {
@@ -41,12 +39,10 @@ function formatDateToJJMMYYYY(isoDateStr) {
   return isoDateStr;
 }
 
-/** Extrait le préfixe avant @ d'un email */
 function extractTechnicien(email) {
   return email ? email.split('@')[0] : '';
 }
 
-/** Affiche un toast (notification courte) */
 function showToast(message, type = 'info', duration = 3000) {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();
@@ -64,7 +60,6 @@ function showToast(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
-/** Formate une date ISO en format lisible */
 function formatDate(isoStr) {
   if (!isoStr || isoStr === 'Invalid Date') return '—';
   const d = new Date(isoStr);
@@ -132,14 +127,13 @@ async function initListView() {
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client et charge les horaires persistés */
+/** Regroupe les interventions par Nom du Client */
 async function groupInterventionsByClient(interventions) {
   const grouped = {};
 
   for (const interv of interventions) {
     const clientName = interv.clientName || interv.nomClient || 'Client inconnu';
     if (!grouped[clientName]) {
-      // Récupération des horaires enregistrés en base pour ce client
       const savedStart = await JHT_DB.getConfig(`site_start_${clientName}`) || '';
       const savedEnd = await JHT_DB.getConfig(`site_end_${clientName}`) || '';
 
@@ -185,7 +179,6 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte client compacte avec l'indicateur X/Y validé */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -203,7 +196,7 @@ function createClientCard(group) {
   const totalCount = group.interventions.length;
   const doneCount = group.interventions.filter(i => i.status === 'Complete' || i.status === 'Further Action').length;
 
-  let htmlContent = `
+  card.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <div>
         <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">CLIENT</span>
@@ -218,17 +211,22 @@ function createClientCard(group) {
     </div>
   `;
 
-  card.innerHTML = htmlContent;
-
-  card.addEventListener('click', () => {
+  card.addEventListener('click', async () => {
+    // Recharge les horaires depuis la base pour être sûr d'avoir les dernières valeurs persistées
+    group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || '';
+    group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || '';
     openClientDetailView(group);
   });
 
   return card;
 }
 
-/** Affiche la page dédiée à un seul client avec persistance instantanée des horaires et alerte rouge si fin manquante */
-function openClientDetailView(group) {
+/** Affiche la page dédiée à un seul client */
+async function openClientDetailView(group) {
+  // S'assure que les horaires sont bien actualisés depuis la base locale
+  group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || group.siteStartTime || '';
+  group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || group.siteEndTime || '';
+
   AppState.currentClientGroup = group; 
   showView('list');
 
@@ -270,11 +268,11 @@ function openClientDetailView(group) {
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
       <div>
         <label style="font-size: 11px; color: #374151; display: block;">Arrivée site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteStartTime || ''}" />
+        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteStartTime}" />
       </div>
       <div>
         <label id="label-end-time" style="font-size: 11px; color: #374151; display: block;">Départ site (cliquez pour heure actuelle)</label>
-        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteEndTime || ''}" />
+        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="${group.siteEndTime}" />
       </div>
       <div style="align-self: flex-end;">
         <button id="btn-distribute-time" style="background: #16a34a; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">
@@ -289,7 +287,6 @@ function openClientDetailView(group) {
   const endInput = timeBlockCard.querySelector('#global-end-time');
   const labelEnd = timeBlockCard.querySelector('#label-end-time');
 
-  // Sécurité visuelle : Alerte en rouge si l'heure de fin est vide
   const checkEndTimeSecurity = () => {
     if (!endInput.value) {
       endInput.style.borderColor = '#dc2626';
@@ -305,10 +302,9 @@ function openClientDetailView(group) {
   };
   checkEndTimeSecurity();
 
-  // Enregistrement persistant immédiat des horaires en base locale
   const saveSiteTime = async (key, val) => {
     group[key] = val;
-    await JHT_DB.saveConfig(`site_${key}_${group.clientName}`, val);
+    await JHT_DB.saveConfig(`site_${key === 'siteStartTime' ? 'start' : 'end'}_${group.clientName}`, val);
   };
 
   const setNowToInput = async (inputEl, isStart) => {
@@ -339,7 +335,6 @@ function openClientDetailView(group) {
     checkEndTimeSecurity();
   });
 
-  // Action du bouton de répartition et synchro automatique
   timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
     const startStr = startInput.value;
     const endStr = endInput.value;
@@ -417,7 +412,6 @@ function openClientDetailView(group) {
     }
   });
 
-  // Liste des interventions du client
   const subList = document.createElement('div');
   subList.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
 
@@ -481,7 +475,6 @@ function openClientDetailView(group) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-/** Échapper le HTML pour éviter les XSS */
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -491,7 +484,6 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Purge le stockage local et réactualise proprement depuis Google Sheets */
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
   btn.disabled = true;
@@ -595,6 +587,7 @@ async function renderDetailView(interv) {
     ttrSelect.appendChild(opt);
   });
 
+  // Correction immédiate : Force le masquage strict du TTR si ce n'est pas "Further Action"
   updateTtrVisibility();
 
   renderPiecesSection(interv.pieces || []);
@@ -605,7 +598,7 @@ async function renderDetailView(interv) {
   setupFormValidationAndClock();
 }
 
-/** Gère l'affichage dynamique du TTR Deviation Code (masqué si pas Further Action) */
+/** Gère l'affichage dynamique strict du TTR Deviation Code */
 function updateTtrVisibility() {
   const statusSelect = document.getElementById('detail-status');
   const ttrContainer = document.getElementById('ttr-container');
