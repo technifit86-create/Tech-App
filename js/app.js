@@ -198,7 +198,6 @@ function createClientCard(group) {
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   `;
 
-  // Calcul du nombre d'interventions faites (Complete ou Further Action)
   const totalCount = group.interventions.length;
   const doneCount = group.interventions.filter(i => i.status === 'Complete' || i.status === 'Further Action').length;
 
@@ -226,7 +225,7 @@ function createClientCard(group) {
   return card;
 }
 
-/** Affiche la page dédiée à un seul client et masque les autres */
+/** Affiche la page dédiée à un seul client avec l'outil de répartition des heures */
 function openClientDetailView(group) {
   AppState.currentClientGroup = group; 
   showView('list');
@@ -234,6 +233,7 @@ function openClientDetailView(group) {
   const listContainer = document.getElementById('intervention-list');
   listContainer.innerHTML = ''; 
 
+  // En-tête du dossier client
   const header = document.createElement('div');
   header.style.cssText = `
     margin-bottom: 16px;
@@ -245,7 +245,7 @@ function openClientDetailView(group) {
       ← Retour à la liste des clients
     </button>
     <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CLIENT</span>
-    <h2 style="font-size: 20px; color: #111827; margin: 2px 0 0 0;">👤 ${escapeHtml(group.clientName)}</h2>
+    <h2 style="font-size: 20px; color: #111827; margin: 2px 0 4px 0;">👤 ${escapeHtml(group.clientName)}</h2>
     <span style="font-size: 13px; color: #6b7280;">Total : ${group.interventions.length} intervention(s)</span>
   `;
   listContainer.appendChild(header);
@@ -254,6 +254,92 @@ function openClientDetailView(group) {
     initListView(); 
   });
 
+  // Bloc de Répartition Globale des Heures
+  const timeBlockCard = document.createElement('div');
+  timeBlockCard.style.cssText = `
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+  `;
+  timeBlockCard.innerHTML = `
+    <div style="font-size: 13px; font-weight: bold; color: #166534; margin-bottom: 8px;">
+      ⏱️ Répartition globale du temps sur site
+    </div>
+    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+      <div>
+        <label style="font-size: 11px; color: #374151; display: block;">Arrivée site</label>
+        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;" value="08:00" />
+      </div>
+      <div>
+        <label style="font-size: 11px; color: #374151; display: block;">Départ site</label>
+        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;" value="12:00" />
+      </div>
+      <div style="align-self: flex-end;">
+        <button id="btn-distribute-time" style="background: #16a34a; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">
+          Répartir sur les fiches
+        </button>
+      </div>
+    </div>
+  `;
+  listContainer.appendChild(timeBlockCard);
+
+  // Action du bouton de répartition automatique
+  timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
+    const startStr = document.getElementById('global-start-time').value;
+    const endStr = document.getElementById('global-end-time').value;
+
+    if (!startStr || !endStr) {
+      showToast('Veuillez renseigner l\'heure d\'arrivée et de départ', 'error');
+      return;
+    }
+
+    const [startH, startM] = startStr.split(':').map(Number);
+    const [endH, endM] = endStr.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const endMinutes = endH * 60 + endM;
+
+    if (endMinutes <= startMinutes) {
+      showToast('L\'heure de départ doit être après l\'arrivée', 'error');
+      return;
+    }
+
+    const totalMinutes = endMinutes - startMinutes;
+    const count = group.interventions.length;
+    const slotMinutes = Math.floor(totalMinutes / count);
+
+    // Attribution séquentielle des créneaux
+    for (let i = 0; i < count; i++) {
+      const interv = group.interventions[i];
+      const slotStartMin = startMinutes + (i * slotMinutes);
+      const slotEndMin = (i === count - 1) ? endMinutes : (startMinutes + ((i + 1) * slotMinutes));
+
+      const formatMinToTime = (m) => {
+        const h = String(Math.floor(m / 60)).padStart(2, '0');
+        const min = String(m % 60).padStart(2, '0');
+        return `${h}:${min}`;
+      };
+
+      interv.dateDebut = interv.dateDebut || todayISO();
+      interv.heureDebut = formatMinToTime(slotStartMin);
+      interv.heureFin = formatMinToTime(slotEndMin);
+      interv.status = interv.status && interv.status !== 'Scheduled' ? interv.status : 'Complete'; // Marque par défaut comme Complete si non défini
+
+      await JHT_DB.saveIntervention(interv);
+    }
+
+    showToast('Horaires répartis avec succès sur toutes les fiches !', 'success');
+    
+    // Recharge la vue du dossier client mise à jour
+    const allInterventions = await JHT_DB.getAllInterventions();
+    const updatedGroup = groupInterventionsByClient(allInterventions).find(g => g.clientName === group.clientName);
+    if (updatedGroup) {
+      openClientDetailView(updatedGroup);
+    }
+  });
+
+  // Liste des interventions du client
   const subList = document.createElement('div');
   subList.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
 
@@ -268,6 +354,7 @@ function openClientDetailView(group) {
     const incident = interv.incidentNo || '—';
     const produit = interv.productName || interv.nomProduit || '—';
     const serie = interv.serialNo || interv.serieConsole || '—';
+    const timeSlotStr = (interv.heureDebut && interv.heureFin) ? ` ⏰ ${interv.heureDebut} - ${interv.heureFin}` : '';
 
     const item = document.createElement('div');
     item.className = 'sub-intervention-item';
@@ -287,7 +374,7 @@ function openClientDetailView(group) {
     item.innerHTML = `
       <div style="flex: 1;">
         <div style="font-size: 14px; font-weight: bold; color: #1f2937; margin-bottom: 4px;">
-          📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr})</span>
+          📌 Incident : ${escapeHtml(incident)} <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(${dateStr}${timeSlotStr})</span>
         </div>
         <div style="font-size: 13px; color: #374151; margin-bottom: 3px;">
           📦 Produit : <strong>${escapeHtml(produit)}</strong>
