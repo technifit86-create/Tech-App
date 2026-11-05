@@ -2,7 +2,7 @@
  * app.js — Application principale JHT Tech App
  * SPA (Single Page Application) avec 3 vues :
  *   0 - Configuration (premier lancement)
- *   1 - Liste des interventions (groupées par Case No)
+ *   1 - Liste des interventions (groupées par Nom du Client)
  *   2 - Détail / Formulaire d'une intervention
  */
 
@@ -127,28 +127,26 @@ async function saveConfig() {
   await initListView();
 }
 
-// ─── Vue 1 — Liste des interventions (Regroupées par Case No) ─────────────────
+// ─── Vue 1 — Liste des interventions (Regroupées par Nom du Client) ───────────
 
 async function initListView() {
   showView('list');
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par numéro de dossier (Case No) */
-function groupInterventionsByCase(interventions) {
+/** Regroupe les interventions par Nom du Client[cite: 4] */
+function groupInterventionsByClient(interventions) {
   const grouped = {};
 
   interventions.forEach(interv => {
-    const caseNo = interv.caseNo || 'Sans Dossier';
-    if (!grouped[caseNo]) {
-      grouped[caseNo] = {
-        caseNo: caseNo,
-        clientName: interv.clientName || interv.nomClient || 'Client inconnu',
-        productName: interv.productName || interv.nomProduit || 'Produit non spécifié',
+    const clientName = interv.clientName || interv.nomClient || 'Client inconnu';
+    if (!grouped[clientName]) {
+      grouped[clientName] = {
+        clientName: clientName,
         interventions: []
       };
     }
-    grouped[caseNo].interventions.push(interv);
+    grouped[clientName].interventions.push(interv);
   });
 
   return Object.values(grouped);
@@ -171,12 +169,12 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    // Regroupement par Case No
-    const groupedData = groupInterventionsByCase(interventions);
+    // Regroupement par Nom du Client[cite: 4]
+    const groupedData = groupInterventionsByClient(interventions);
 
     groupedData.forEach((group) => {
-      const caseCard = createCaseCard(group);
-      listContainer.appendChild(caseCard);
+      const clientCard = createClientCard(group);
+      listContainer.appendChild(clientCard);
     });
   } catch (error) {
     listContainer.innerHTML = '<div class="error-message">Erreur de chargement</div>';
@@ -184,8 +182,8 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte parente pour un groupe de dossier (Case No) avec détails d'incident */
-function createCaseCard(group) {
+/** Crée une carte parente pour un groupe de client avec détails d'incident */
+function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
   card.style.cssText = `
@@ -197,13 +195,12 @@ function createCaseCard(group) {
     box-shadow: 0 2px 6px rgba(0,0,0,0.04);
   `;
 
-  // En-tête du groupe de dossier
+  // En-tête du groupe basé sur le Nom du Client[cite: 4]
   let htmlContent = `
     <div style="border-bottom: 1px solid #f0f0f0; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start;">
       <div>
-        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CASE NO</span>
-        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 4px 0;">${escapeHtml(group.caseNo)}</h3>
-        <span style="font-size: 13px; color: #4b5563;">👤 ${escapeHtml(group.clientName)}</span>
+        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">CLIENT</span>
+        <h3 style="font-size: 16px; color: #111827; margin: 2px 0 0 0;">👤 ${escapeHtml(group.clientName)}</h3>
       </div>
       <span style="background: #f3f4f6; color: #374151; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
         ${group.interventions.length} intervention(s)
@@ -212,7 +209,7 @@ function createCaseCard(group) {
     <div class="sub-interventions-list" style="display: flex; flex-direction: column; gap: 8px;">
   `;
 
-  // Génération des sous-éléments : Incident, Produit et N° de Série
+  // Génération des sous-éléments : Incident, Produit et N° de Série (sans Case No)[cite: 4]
   group.interventions.forEach((interv) => {
     const syncIcon = interv.synced ? '✅' : '⏳';
     const statusClass = interv.status === 'Complete' ? 'status--complete'
