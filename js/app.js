@@ -134,7 +134,7 @@ async function initListView() {
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client[cite: 5] */
+/** Regroupe les interventions par Nom du Client[cite: 4] */
 function groupInterventionsByClient(interventions) {
   const grouped = {};
 
@@ -169,7 +169,7 @@ async function renderInterventionList() {
     emptyState.style.display = 'none';
     listContainer.innerHTML = '';
 
-    // Regroupement par Nom du Client[cite: 5]
+    // Regroupement par Nom du Client[cite: 4]
     const groupedData = groupInterventionsByClient(interventions);
 
     groupedData.forEach((group) => {
@@ -182,7 +182,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte client compacte. Au clic, ouvre la vue dédiée du client[cite: 5] */
+/** Crée une carte client compacte. Au clic, ouvre la vue dédiée du client[cite: 4] */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -214,7 +214,6 @@ function createClientCard(group) {
 
   card.innerHTML = htmlContent;
 
-  // Clic sur la carte client pour basculer vers la vue dédiée du client[cite: 5]
   card.addEventListener('click', () => {
     openClientDetailView(group);
   });
@@ -222,12 +221,11 @@ function createClientCard(group) {
   return card;
 }
 
-/** Affiche la page dédiée à un seul client et masque tous les autres[cite: 5] */
+/** Affiche la page dédiée à un seul client et masque les autres[cite: 4] */
 function openClientDetailView(group) {
   const listContainer = document.getElementById('intervention-list');
   listContainer.innerHTML = ''; 
 
-  // En-tête avec bouton de retour et informations client[cite: 5]
   const header = document.createElement('div');
   header.style.cssText = `
     margin-bottom: 16px;
@@ -248,7 +246,6 @@ function openClientDetailView(group) {
     renderInterventionList();
   });
 
-  // Liste des interventions du client sélectionné[cite: 5]
   const subList = document.createElement('div');
   subList.style.cssText = 'display: flex; flex-direction: column; gap: 10px;';
 
@@ -321,7 +318,7 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Purge le stockage local et réactualise proprement depuis Google Sheets[cite: 5] */
+/** Purge le stockage local et réactualise proprement depuis Google Sheets */
 async function refreshFromSheets() {
   const btn = document.getElementById('btn-refresh');
   btn.disabled = true;
@@ -673,6 +670,8 @@ async function saveAndSync() {
     showToast('Enregistré localement', 'info', 1500);
     updateSyncIndicator(false);
 
+    const clientName = interv.clientName || interv.nomClient;
+
     if (AppState.isOnline) {
       btn.textContent = '📡 Synchronisation…';
       const syncResult = await JHT_SYNC.syncToSheets(AppState.currentIntervention);
@@ -682,10 +681,26 @@ async function saveAndSync() {
         updateSyncIndicator(true);
         showToast('Synchronisé avec Google Sheets !', 'success');
 
-        await JHT_DB.deleteIntervention(AppState.currentIntervention.id);
+        // Modification : On conserve l'intervention en base locale avec l'état synchronisé (synced = true) 
+        // au lieu de la supprimer, pour qu'elle reste affichée sur la page du client avec ✅.
+        AppState.currentIntervention.synced = true;
+        await JHT_DB.saveIntervention(AppState.currentIntervention);
 
         setTimeout(() => {
-          initListView();
+          // Retour direct sur la vue isolée du client au lieu de initListView()
+          if (clientName) {
+            JHT_DB.getAllInterventions().then(interventions => {
+              const grouped = groupInterventionsByClient(interventions);
+              const targetGroup = grouped.find(g => g.clientName === clientName);
+              if (targetGroup) {
+                openClientDetailView(targetGroup);
+              } else {
+                initListView();
+              }
+            }).catch(() => initListView());
+          } else {
+            initListView();
+          }
         }, 1000);
 
       } else if (syncResult.offline) {
@@ -700,8 +715,6 @@ async function saveAndSync() {
     } else {
       showToast('Hors ligne — sera synchronisé au retour du réseau', 'warning');
     }
-
-    renderInterventionList().catch(() => {});
 
   } catch (error) {
     console.error('[APP] Erreur saveAndSync :', error);
