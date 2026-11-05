@@ -132,7 +132,7 @@ async function saveConfig() {
 
 async function initListView() {
   showView('list');
-  AppState.currentClientGroup = null; // Réinitialise le dossier client courant
+  AppState.currentClientGroup = null; 
   await renderInterventionList();
 }
 
@@ -183,7 +183,7 @@ async function renderInterventionList() {
   }
 }
 
-/** Crée une carte client compacte. Au clic, ouvre la vue dédiée du client */
+/** Crée une carte client compacte avec l'indicateur X/Y validé */
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
@@ -198,6 +198,10 @@ function createClientCard(group) {
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   `;
 
+  // Calcul du nombre d'interventions faites (Complete ou Further Action)
+  const totalCount = group.interventions.length;
+  const doneCount = group.interventions.filter(i => i.status === 'Complete' || i.status === 'Further Action').length;
+
   let htmlContent = `
     <div style="display: flex; justify-content: space-between; align-items: center;">
       <div>
@@ -206,7 +210,7 @@ function createClientCard(group) {
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
         <span style="background: #f3f4f6; color: #374151; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
-          ${group.interventions.length} intervention(s)
+          ${doneCount}/${totalCount}
         </span>
         <span style="color: #2980b9; font-weight: bold; font-size: 18px;">›</span>
       </div>
@@ -224,7 +228,7 @@ function createClientCard(group) {
 
 /** Affiche la page dédiée à un seul client et masque les autres */
 function openClientDetailView(group) {
-  AppState.currentClientGroup = group; // Mémorise le dossier client actuel
+  AppState.currentClientGroup = group; 
   showView('list');
 
   const listContainer = document.getElementById('intervention-list');
@@ -247,7 +251,7 @@ function openClientDetailView(group) {
   listContainer.appendChild(header);
 
   header.querySelector('#btn-back-to-clients').addEventListener('click', () => {
-    initListView(); // Retourne à la liste globale des clients
+    initListView(); 
   });
 
   const subList = document.createElement('div');
@@ -430,6 +434,7 @@ async function renderDetailView(interv) {
   setupFormValidationAndClock();
 }
 
+/** Gère l'affichage dynamique du TTR Deviation Code (masqué si pas Further Action) */
 function updateTtrVisibility() {
   const statusSelect = document.getElementById('detail-status');
   const ttrContainer = document.getElementById('ttr-container');
@@ -689,7 +694,6 @@ async function saveAndSync() {
         await JHT_DB.saveIntervention(AppState.currentIntervention);
 
         setTimeout(() => {
-          // Retour direct sur le dossier/page du client concerné
           if (clientName) {
             JHT_DB.getAllInterventions().then(interventions => {
               const grouped = groupInterventionsByClient(interventions);
@@ -774,8 +778,6 @@ async function init() {
   document.getElementById('btn-save-config').addEventListener('click', saveConfig);
   document.getElementById('btn-refresh').addEventListener('click', refreshFromSheets);
   
-  // Modification du bouton retour de la vue détail : 
-  // S'il y a un dossier client mémorisé, il retourne sur ce dossier, sinon sur la liste globale.
   document.getElementById('btn-back').addEventListener('click', () => {
     if (AppState.currentClientGroup) {
       openClientDetailView(AppState.currentClientGroup);
