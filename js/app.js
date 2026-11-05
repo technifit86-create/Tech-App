@@ -1,7 +1,7 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec verrouillage de navigation, validation stricte des horaires
- * et correction de la persistance des états.
+ * SPA (Single Page Application) avec verrouillage de navigation, validation stricte des horaires,
+ * suppression du bouton d'actualisation/rond rouge "+" et indicateur visuel vert sur la carte client.
  */
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
@@ -195,9 +195,14 @@ async function renderInterventionList() {
 function createClientCard(group) {
   const card = document.createElement('div');
   card.className = 'case-group-card';
+  
+  // Si le dossier est réparti/synchronisé, la carte prend une couleur et une bordure verte
+  const cardBg = group.isDistributed ? '#f0fdf4' : '#ffffff';
+  const cardBorder = group.isDistributed ? '#86efac' : '#e0e0e0';
+
   card.style.cssText = `
-    background: #ffffff;
-    border: 1px solid #e0e0e0;
+    background: ${cardBg};
+    border: 1px solid ${cardBorder};
     border-radius: 10px;
     padding: 14px;
     margin-bottom: 16px;
@@ -208,6 +213,10 @@ function createClientCard(group) {
 
   const totalCount = group.interventions.length;
   const doneCount = group.interventions.filter(i => i.status === 'Complete' || i.status === 'Further Action').length;
+  
+  const statusBadgeColor = group.isDistributed ? '#166534' : '#374151';
+  const statusBadgeBg = group.isDistributed ? '#dcfce7' : '#f3f4f6';
+  const badgeText = group.isDistributed ? `✅ ${doneCount}/${totalCount} OK` : `${doneCount}/${totalCount}`;
 
   card.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -216,8 +225,8 @@ function createClientCard(group) {
         <h3 style="font-size: 16px; color: #111827; margin: 2px 0 0 0;">👤 ${escapeHtml(group.clientName)}</h3>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
-        <span style="background: #f3f4f6; color: #374151; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #e5e7eb;">
-          ${doneCount}/${totalCount}
+        <span style="background: ${statusBadgeBg}; color: ${statusBadgeColor}; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid ${cardBorder};">
+          ${badgeText}
         </span>
         <span style="color: #2980b9; font-weight: bold; font-size: 18px;">›</span>
       </div>
@@ -319,7 +328,7 @@ async function openClientDetailView(group) {
       distributeBtn.setAttribute('disabled', 'true');
       distributeBtn.style.opacity = '0.5';
       distributeBtn.style.cursor = 'not-allowed';
-      distributeBtn.style.background = '#dc2626'; // Rouge inactif si incomplet
+      distributeBtn.style.background = '#dc2626';
     }
 
     if (!hasEnd) {
