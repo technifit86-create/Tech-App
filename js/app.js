@@ -225,7 +225,7 @@ function createClientCard(group) {
   return card;
 }
 
-/** Affiche la page dédiée à un seul client avec l'outil de répartition des heures */
+/** Affiche la page dédiée à un seul client avec l'outil de répartition des heures et synchro auto */
 function openClientDetailView(group) {
   AppState.currentClientGroup = group; 
   showView('list');
@@ -254,7 +254,7 @@ function openClientDetailView(group) {
     initListView(); 
   });
 
-  // Bloc de Répartition Globale des Heures
+  // Bloc de Répartition Globale des Heures avec mise à l'heure actuelle au clic/double-clic
   const timeBlockCard = document.createElement('div');
   timeBlockCard.style.cssText = `
     background: #f0fdf4;
@@ -269,26 +269,42 @@ function openClientDetailView(group) {
     </div>
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
       <div>
-        <label style="font-size: 11px; color: #374151; display: block;">Arrivée site</label>
-        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;" value="08:00" />
+        <label style="font-size: 11px; color: #374151; display: block;">Arrivée site (cliquez pour heure actuelle)</label>
+        <input type="time" id="global-start-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="08:00" />
       </div>
       <div>
-        <label style="font-size: 11px; color: #374151; display: block;">Départ site</label>
-        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;" value="12:00" />
+        <label style="font-size: 11px; color: #374151; display: block;">Départ site (cliquez pour heure actuelle)</label>
+        <input type="time" id="global-end-time" style="padding: 6px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; cursor: pointer;" value="12:00" />
       </div>
       <div style="align-self: flex-end;">
         <button id="btn-distribute-time" style="background: #16a34a; color: white; border: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; cursor: pointer;">
-          Répartir sur les fiches
+          Répartir & Synchroniser
         </button>
       </div>
     </div>
   `;
   listContainer.appendChild(timeBlockCard);
 
-  // Action du bouton de répartition automatique
+  // Fonction helper pour assigner l'heure actuelle au champ input time
+  const setNowToInput = (inputEl) => {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    inputEl.value = `${h}:${m}`;
+  };
+
+  const startInput = timeBlockCard.querySelector('#global-start-time');
+  const endInput = timeBlockCard.querySelector('#global-end-time');
+
+  startInput.addEventListener('click', () => setNowToInput(startInput));
+  startInput.addEventListener('dblclick', () => setNowToInput(startInput));
+  endInput.addEventListener('click', () => setNowToInput(endInput));
+  endInput.addEventListener('dblclick', () => setNowToInput(endInput));
+
+  // Action du bouton de répartition automatique et synchronisation simultanée
   timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
-    const startStr = document.getElementById('global-start-time').value;
-    const endStr = document.getElementById('global-end-time').value;
+    const startStr = startInput.value;
+    const endStr = endInput.value;
 
     if (!startStr || !endStr) {
       showToast('Veuillez renseigner l\'heure d\'arrivée et de départ', 'error');
@@ -305,13 +321,23 @@ function openClientDetailView(group) {
       return;
     }
 
+    // Filtrer uniquement les fiches qui ne sont PAS "In Process"
+    const eligibleInterventions = group.interventions.filter(i => i.status && i.status !== 'In Process' && i.status !== 'Scheduled');
+    
+    if (eligibleInterventions.length === 0) {
+      showToast('Aucune fiche éligible (marquée Complete ou Further Action) trouvée pour la répartition.', 'warning');
+      return;
+    }
+
     const totalMinutes = endMinutes - startMinutes;
-    const count = group.interventions.length;
+    const count = eligibleInterventions.length;
     const slotMinutes = Math.floor(totalMinutes / count);
 
-    // Attribution séquentielle des créneaux
+    showToast('Répartition et synchronisation en cours...', 'info');
+
+    // Attribution séquentielle des créneaux sur les fiches éligibles
     for (let i = 0; i < count; i++) {
-      const interv = group.interventions[i];
+      const interv = eligibleInterventions[i];
       const slotStartMin = startMinutes + (i * slotMinutes);
       const slotEndMin = (i === count - 1) ? endMinutes : (startMinutes + ((i + 1) * slotMinutes));
 
@@ -324,12 +350,26 @@ function openClientDetailView(group) {
       interv.dateDebut = interv.dateDebut || todayISO();
       interv.heureDebut = formatMinToTime(slotStartMin);
       interv.heureFin = formatMinToTime(slotEndMin);
-      interv.status = interv.status && interv.status !== 'Scheduled' ? interv.status : 'Complete'; // Marque par défaut comme Complete si non défini
+      interv.synced = false;
 
+      // Sauvegarde locale
       await JHT_DB.saveIntervention(interv);
+
+      // Synchronisation immédiate vers Sheets si en ligne
+      if (AppState.isOnline) {
+        try {
+          const syncResult = await JHT_SYNC.syncToSheets(interv);
+          if (syncResult.success) {
+            interv.synced = true;
+            await JHT_DB.saveIntervention(interv);
+          }
+        } catch (e) {
+          console.warn('[APP] Erreur sync auto item :', e);
+        }
+      }
     }
 
-    showToast('Horaires répartis avec succès sur toutes les fiches !', 'success');
+    showToast('Horaires répartis et synchronisés avec succès !', 'success');
     
     // Recharge la vue du dossier client mise à jour
     const allInterventions = await JHT_DB.getAllInterventions();
@@ -494,11 +534,18 @@ async function renderDetailView(interv) {
     dateVal = `${parts[2]}-${parts[1]}-${parts[0]}`;
   }
   document.getElementById('detail-date-debut').value = dateVal;
-  document.getElementById('detail-heure-debut').value = interv.heureDebut || '';
+  
+  // Modification : Les champs d'heures individuels sont masqués visuellement mais conservent leurs valeurs pour Sheets
+  const heureDebutInput = document.getElementById('detail-heure-debut');
+  if (heureDebutInput) {
+    heureDebutInput.value = interv.heureDebut || '';
+    if (heureDebutInput.parentElement) heureDebutInput.parentElement.style.display = 'none';
+  }
   
   const heureFinEl = document.getElementById('detail-heure-fin');
   if (heureFinEl) {
     heureFinEl.value = interv.heureFin || '';
+    if (heureFinEl.parentElement) heureFinEl.parentElement.style.display = 'none';
   }
 
   const ttrSelect = document.getElementById('detail-ttr');
@@ -650,8 +697,6 @@ function setupFormValidationAndClock() {
 
     const statusVal = document.getElementById('detail-status')?.value;
     const dateVal = document.getElementById('detail-date-debut')?.value;
-    const heureDebutVal = document.getElementById('detail-heure-debut')?.value;
-    const heureFinVal = document.getElementById('detail-heure-fin')?.value;
     const ttrVal = document.getElementById('detail-ttr')?.value;
     const travauxVal = document.getElementById('detail-travaux')?.value;
 
@@ -663,8 +708,6 @@ function setupFormValidationAndClock() {
     const allFilled = Boolean(
       statusVal && statusVal.trim() !== '' &&
       dateVal && dateVal.trim() !== '' &&
-      heureDebutVal && heureDebutVal.trim() !== '' &&
-      heureFinVal && heureFinVal.trim() !== '' &&
       ttrValid &&
       travauxVal && travauxVal.trim() !== ''
     );
@@ -684,33 +727,6 @@ function setupFormValidationAndClock() {
   formElements.forEach(el => {
     el.addEventListener('input', validateForm);
     el.addEventListener('change', validateForm);
-  });
-
-  const timeInputs = document.querySelectorAll('#detail-heure-debut, #detail-heure-fin');
-  timeInputs.forEach(input => {
-    const parentContainer = input.parentElement;
-
-    const setNowTime = () => {
-      const now = new Date();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      
-      input.value = `${hours}:${minutes}`;
-
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      validateForm();
-    };
-
-    if (parentContainer) {
-      parentContainer.addEventListener('click', (e) => {
-        if (e.target !== input) {
-          setNowTime();
-        }
-      });
-    }
-
-    input.addEventListener('dblclick', setNowTime);
   });
 
   validateForm();
@@ -733,7 +749,8 @@ async function saveAndSync() {
     const rawDate = document.getElementById('detail-date-debut').value;
     interv.dateDebut = formatDateToJJMMYYYY(rawDate);
     
-    interv.heureDebut = document.getElementById('detail-heure-debut').value;
+    const heureDebutInput = document.getElementById('detail-heure-debut');
+    if (heureDebutInput) interv.heureDebut = heureDebutInput.value;
     
     const heureFinEl = document.getElementById('detail-heure-fin');
     if (heureFinEl) {
