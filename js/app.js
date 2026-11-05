@@ -1,6 +1,6 @@
 /**
  * app.js — Application principale JHT Tech App
- * SPA (Single Page Application) avec correction de la persistance des horaires et du TTR Code.
+ * SPA (Single Page Application) avec verrouillage de navigation et validation stricte des horaires.
  */
 
 // ─── TTR Deviation Codes ──────────────────────────────────────────────────────
@@ -127,7 +127,6 @@ async function initListView() {
   await renderInterventionList();
 }
 
-/** Regroupe les interventions par Nom du Client */
 async function groupInterventionsByClient(interventions) {
   const grouped = {};
 
@@ -141,7 +140,8 @@ async function groupInterventionsByClient(interventions) {
         clientName: clientName,
         interventions: [],
         siteStartTime: savedStart,
-        siteEndTime: savedEnd
+        siteEndTime: savedEnd,
+        isDistributed: Boolean(savedStart && savedEnd) // Indicateur si réparti
       };
     }
     grouped[clientName].interventions.push(interv);
@@ -212,18 +212,17 @@ function createClientCard(group) {
   `;
 
   card.addEventListener('click', async () => {
-    // Recharge les horaires depuis la base pour être sûr d'avoir les dernières valeurs persistées
     group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || '';
     group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || '';
+    group.isDistributed = Boolean(group.siteStartTime && group.siteEndTime);
     openClientDetailView(group);
   });
 
   return card;
 }
 
-/** Affiche la page dédiée à un seul client */
+/** Affiche la page dédiée à un seul client avec verrouillage de retour si non réparti */
 async function openClientDetailView(group) {
-  // S'assure que les horaires sont bien actualisés depuis la base locale
   group.siteStartTime = await JHT_DB.getConfig(`site_start_${group.clientName}`) || group.siteStartTime || '';
   group.siteEndTime = await JHT_DB.getConfig(`site_end_${group.clientName}`) || group.siteEndTime || '';
 
@@ -239,8 +238,12 @@ async function openClientDetailView(group) {
     padding-bottom: 12px;
     border-bottom: 2px solid #e5e7eb;
   `;
+  
+  // Le bouton retour est conditionnel : masqué/bloqué si les heures ne sont pas encore réparties
+  const showBackBtn = group.isDistributed;
+
   header.innerHTML = `
-    <button id="btn-back-to-clients" style="background: none; border: none; color: #2980b9; font-size: 14px; font-weight: bold; cursor: pointer; padding: 0 0 10px 0; display: block;">
+    <button id="btn-back-to-clients" style="background: none; border: none; color: #2980b9; font-size: 14px; font-weight: bold; cursor: pointer; padding: 0 0 10px 0; display: ${showBackBtn ? 'block' : 'none'};">
       ← Retour à la liste des clients
     </button>
     <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; font-weight: bold;">DOSSIER CLIENT</span>
@@ -249,9 +252,11 @@ async function openClientDetailView(group) {
   `;
   listContainer.appendChild(header);
 
-  header.querySelector('#btn-back-to-clients').addEventListener('click', () => {
-    initListView(); 
-  });
+  if (showBackBtn) {
+    header.querySelector('#btn-back-to-clients').addEventListener('click', () => {
+      initListView(); 
+    });
+  }
 
   const timeBlockCard = document.createElement('div');
   timeBlockCard.style.cssText = `
@@ -286,9 +291,27 @@ async function openClientDetailView(group) {
   const startInput = timeBlockCard.querySelector('#global-start-time');
   const endInput = timeBlockCard.querySelector('#global-end-time');
   const labelEnd = timeBlockCard.querySelector('#label-end-time');
+  const distributeBtn = timeBlockCard.querySelector('#btn-distribute-time');
 
-  const checkEndTimeSecurity = () => {
-    if (!endInput.value) {
+  // Met à jour l'état visuel et interactif du bouton "Répartir & Synchroniser" selon la présence des horaires
+  const updateDistributeButtonState = () => {
+    const hasStart = Boolean(startInput.value);
+    const hasEnd = Boolean(endInput.value);
+
+    if (hasStart && hasEnd) {
+      distributeBtn.removeAttribute('disabled');
+      distributeBtn.style.opacity = '1';
+      distributeBtn.style.cursor = 'pointer';
+      distributeBtn.style.background = '#16a34a'; // Vert actif
+    } else {
+      distributeBtn.setAttribute('disabled', 'true');
+      distributeBtn.style.opacity = '0.5';
+      distributeBtn.style.cursor = 'not-allowed';
+      distributeBtn.style.background = '#dc2626'; // Rouge inactif
+    }
+
+    // Sécurité visuelle heure de fin en rouge si manquante
+    if (!hasEnd) {
       endInput.style.borderColor = '#dc2626';
       endInput.style.backgroundColor = '#fef2f2';
       labelEnd.style.color = '#dc2626';
@@ -300,7 +323,8 @@ async function openClientDetailView(group) {
       labelEnd.style.fontWeight = 'normal';
     }
   };
-  checkEndTimeSecurity();
+
+  updateDistributeButtonState();
 
   const saveSiteTime = async (key, val) => {
     group[key] = val;
@@ -318,35 +342,47 @@ async function openClientDetailView(group) {
       await saveSiteTime('siteStartTime', val);
     } else {
       await saveSiteTime('siteEndTime', val);
-      checkEndTimeSecurity();
     }
+
+    // Dès qu'on interagit avec les heures, on bloque le retour en arrière tant que ce n'est pas réparti/synchronisé
+    group.isDistributed = false;
+    const backBtn = header.querySelector('#btn-back-to-clients');
+    if (backBtn) backBtn.style.display = 'none';
+
+    updateDistributeButtonState();
   };
 
   startInput.addEventListener('click', () => setNowToInput(startInput, true));
   startInput.addEventListener('dblclick', () => setNowToInput(startInput, true));
   startInput.addEventListener('change', async () => { 
     await saveSiteTime('siteStartTime', startInput.value); 
+    group.isDistributed = false;
+    const backBtn = header.querySelector('#btn-back-to-clients');
+    if (backBtn) backBtn.style.display = 'none';
+    updateDistributeButtonState();
   });
 
   endInput.addEventListener('click', () => setNowToInput(endInput, false));
   endInput.addEventListener('dblclick', () => setNowToInput(endInput, false));
   endInput.addEventListener('change', async () => { 
     await saveSiteTime('siteEndTime', endInput.value); 
-    checkEndTimeSecurity();
+    group.isDistributed = false;
+    const backBtn = header.querySelector('#btn-back-to-clients');
+    if (backBtn) backBtn.style.display = 'none';
+    updateDistributeButtonState();
   });
 
-  timeBlockCard.querySelector('#btn-distribute-time').addEventListener('click', async () => {
+  distributeBtn.addEventListener('click', async () => {
     const startStr = startInput.value;
     const endStr = endInput.value;
-
-    await saveSiteTime('siteStartTime', startStr);
-    await saveSiteTime('siteEndTime', endStr);
-    checkEndTimeSecurity();
 
     if (!startStr || !endStr) {
       showToast('Veuillez renseigner l\'heure d\'arrivée et de départ', 'error');
       return;
     }
+
+    await saveSiteTime('siteStartTime', startStr);
+    await saveSiteTime('siteEndTime', endStr);
 
     const [startH, startM] = startStr.split(':').map(Number);
     const [endH, endM] = endStr.split(':').map(Number);
@@ -402,12 +438,15 @@ async function openClientDetailView(group) {
       }
     }
 
+    // Marquage comme réparti et synchronisé avec succès -> déverrouille le bouton retour
+    group.isDistributed = true;
     showToast('Horaires répartis et synchronisés avec succès !', 'success');
     
     const allInterventions = await JHT_DB.getAllInterventions();
     const updatedGroups = await groupInterventionsByClient(allInterventions);
     const updatedGroup = updatedGroups.find(g => g.clientName === group.clientName);
     if (updatedGroup) {
+      updatedGroup.isDistributed = true;
       openClientDetailView(updatedGroup);
     }
   });
@@ -587,7 +626,6 @@ async function renderDetailView(interv) {
     ttrSelect.appendChild(opt);
   });
 
-  // Correction immédiate : Force le masquage strict du TTR si ce n'est pas "Further Action"
   updateTtrVisibility();
 
   renderPiecesSection(interv.pieces || []);
@@ -598,7 +636,6 @@ async function renderDetailView(interv) {
   setupFormValidationAndClock();
 }
 
-/** Gère l'affichage dynamique strict du TTR Deviation Code */
 function updateTtrVisibility() {
   const statusSelect = document.getElementById('detail-status');
   const ttrContainer = document.getElementById('ttr-container');
@@ -836,6 +873,7 @@ async function saveAndSync() {
               if (AppState.currentClientGroup) {
                 targetGroup.siteStartTime = AppState.currentClientGroup.siteStartTime;
                 targetGroup.siteEndTime = AppState.currentClientGroup.siteEndTime;
+                targetGroup.isDistributed = AppState.currentClientGroup.isDistributed;
               }
               openClientDetailView(targetGroup);
             } else {
